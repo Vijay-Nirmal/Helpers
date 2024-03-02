@@ -18,6 +18,11 @@ WHERE session_id IN (SELECT blocking_session_id
 FROM sys.dm_exec_requests 
 WHERE blocking_session_id > 0)
 
+
+SELECT * FROM sys.sysprocesses WHERE blocked > 0
+
+DBCC INPUTBUFFER(51) -- Use this to see the last command (plain sql text) executed by a session
+
 --ACTIVITY MONITOR
 
 --RIGHT CLICK THE SERVER, CHOOSE ACTIVITY MONITOR
