@@ -18,6 +18,7 @@
 
 ## Think about Quality Attributes
 
+- [ ] Note: Quality Attributes will/can be different for each user flow or a single action
 - [ ] Performance
   - [ ] Response Time (Processing Time + Waiting Time (Queue Time, Network delay, others))
   - [ ] Throughput
@@ -60,6 +61,7 @@
 
 ## Rest API Definition
 
+- [ ] Sequence Diagram will be very usefull to start
 - [ ] Identifying Entites
 - [ ] Mapping Entities to URIs
 - [ ] Defining Resource's Representation (Structure of Object)
