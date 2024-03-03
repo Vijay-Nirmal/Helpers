@@ -57,3 +57,20 @@
 ## Measurement
 - [ ] Analyze the response time using percentile
 - [ ] Find perforamce degration point when load increaces
+
+## Rest API Definition
+
+- [ ] Identifying Entites
+- [ ] Mapping Entities to URIs
+- [ ] Defining Resource's Representation (Structure of Object)
+- [ ] Assigning HTTP Methods to Operations on Resources
+- [ ] API feature like Auth and Paging
+
+## Design Architectural Diagram
+- [ ] Design functional Architectural Diagram
+- [ ] Design non-functional Architectural Diagram (Scalability, Avaliablity ....)
+  - [ ] Scalability: Add Shard (Spreading data accross multiple instance (Compound Index + Range Shard Strategy))
+  - [ ] Performance: CDN (Find update model), Cache reponse, Add Index
+- [ ] Fault Tolerance: Replication, Geo Replication
+- [ ] Availability
+- [ ] Durability: Backup
