@@ -33,6 +33,7 @@
     - [ ] Redundancy and Replication - Spatial Redundancy
     - [ ] Retryies and Redelivery - Time Redundancy
   - [ ] Failure Detection (Health Check)
+  - [ ] Make the trade-off between Availability and Consistancy (CAP Theorem)
 - [ ] Testability
 - [ ] Deployability
 - [ ] Maintainability
