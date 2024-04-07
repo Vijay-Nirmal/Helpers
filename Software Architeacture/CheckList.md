@@ -8,6 +8,7 @@
 3. Data Model
 4. API Design
 5. System Design
+  - [ ] Find and desing based on Read Heavy or Write Heavy system
 6. POC with the design
 
 ## Check list to gather information
