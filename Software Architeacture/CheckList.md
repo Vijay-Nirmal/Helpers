@@ -1,3 +1,15 @@
+## System Design Flow
+
+1. Requirements Engineering
+2. Capacity Estimation
+  - [ ] Excepted throughput calculation
+  - [ ] Excepted bandwidth calculation (Throughput * (Request + Response Size))
+  - [ ] Excepted storage requirement calculation over a long duration (5 years)
+3. Data Model
+4. API Design
+5. System Design
+6. POC with the design
+
 ## Check list to gather information
 
 - [ ] Ask for every requirement
