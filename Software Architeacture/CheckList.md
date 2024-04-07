@@ -2,7 +2,7 @@
 
 1. Requirements Engineering
 2. Capacity Estimation
-  - [ ] Excepted throughput calculation
+  - [ ] Excepted throughput calculation (Average and Peek load)
   - [ ] Excepted bandwidth calculation (Throughput * (Request + Response Size))
   - [ ] Excepted storage requirement calculation over a long duration (5 years)
 3. Data Model
