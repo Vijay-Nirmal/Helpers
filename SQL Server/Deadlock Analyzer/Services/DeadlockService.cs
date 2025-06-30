@@ -19,17 +19,7 @@ public class DeadlockService : IDeadlockService
     {
         try
         {
-            // Build connection string from individual components
-            var connectionStringBuilder = new SqlConnectionStringBuilder
-            {
-                DataSource = request.Server,
-                UserID = request.Username,
-                Password = request.Password,
-                TrustServerCertificate = true,
-                ConnectTimeout = 30
-            };
-
-            using var connection = new SqlConnection(connectionStringBuilder.ConnectionString);
+            using var connection = new SqlConnection(request.ConnectionString);
             await connection.OpenAsync();
 
             // Query to get deadlock information from Extended Events
@@ -97,17 +87,7 @@ public class DeadlockService : IDeadlockService
         
         try
         {
-            // Build connection string from individual components
-            var connectionStringBuilder = new SqlConnectionStringBuilder
-            {
-                DataSource = request.Server,
-                UserID = request.Username,
-                Password = request.Password,
-                TrustServerCertificate = true,
-                ConnectTimeout = 30
-            };
-
-            using var connection = new SqlConnection(connectionStringBuilder.ConnectionString);
+            using var connection = new SqlConnection(request.ConnectionString);
             await connection.OpenAsync();
 
             using var command = new SqlCommand(request.Query, connection);

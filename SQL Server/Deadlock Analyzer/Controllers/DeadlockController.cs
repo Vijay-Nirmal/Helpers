@@ -21,9 +21,9 @@ public class DeadlockController : ControllerBase
     [HttpPost("extended-events")]
     public async Task<ActionResult<string>> GetExtendedEvents([FromBody] ExtendedEventsRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Server))
+        if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
-            return BadRequest("Server name is required");
+            return BadRequest("Connection string is required");
         }
 
         try
@@ -50,12 +50,12 @@ public class DeadlockController : ControllerBase
     [HttpPost("execute-diagnostic-query")]
     public async Task<ActionResult<DiagnosticQueryResponse>> ExecuteDiagnosticQuery([FromBody] DiagnosticQueryRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Server))
+        if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
             return BadRequest(new DiagnosticQueryResponse
             {
                 Success = false,
-                Message = "Server name is required"
+                Message = "Connection string is required"
             });
         }
 

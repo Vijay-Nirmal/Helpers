@@ -26,9 +26,7 @@ public class DeadlockEvent
 
 public class DiagnosticQueryRequest
 {
-    public string Server { get; set; } = string.Empty;
-    public string Username { get; set; } = string.Empty;
-    public string Password { get; set; } = string.Empty;
+    public string ConnectionString { get; set; } = string.Empty;
     public string Query { get; set; } = string.Empty;
     public int TimeoutSeconds { get; set; } = 30;
 }
@@ -52,7 +50,5 @@ public class PredefinedQuery
 
 public class ExtendedEventsRequest
 {
-    public string Server { get; set; } = string.Empty;
-    public string Username { get; set; } = string.Empty;
-    public string Password { get; set; } = string.Empty;
+    public string ConnectionString { get; set; } = string.Empty;
 }
