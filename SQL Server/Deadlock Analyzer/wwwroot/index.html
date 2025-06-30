@@ -472,6 +472,32 @@
             border-radius: 3px;
         }
 
+        .diagnostic-result {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+
+        .diagnostic-result table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .diagnostic-result th,
+        .diagnostic-result td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .diagnostic-result th {
+            background: var(--accent-primary);
+            color: white;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
@@ -581,6 +607,15 @@
                 <h2 class="section-title">📤 Export Data</h2>
                 <button class="btn" onclick="exportToExcel()">📊 Export to Excel</button>
                 <button class="btn btn-secondary" onclick="exportToJson()" style="margin-left: 10px;">💾 Export to JSON</button>
+            </div>
+
+            <!-- Diagnostic Queries Section -->
+            <div class="section">
+                <h2 class="section-title">🔧 Diagnostic Queries</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Execute predefined queries to diagnose deadlock-related issues. Make sure to fill in the database connection details above.</p>
+                <div id="predefinedQueries">
+                    <button class="btn" onclick="loadPredefinedQueries()">📋 Load Predefined Queries</button>
+                </div>
             </div>
 
             <!-- Filter Bar -->
@@ -1519,7 +1554,9 @@
         // Toggle accordion
         function toggleAccordion(index) {
             const content = document.getElementById(`accordion-${index}`);
-            content.classList.toggle('active');
+            if (content) {
+                content.classList.toggle('active');
+            }
         }
 
         // Show detailed deadlock view
@@ -1678,40 +1715,47 @@
         // Render diagnostic queries
         function renderDiagnosticQueries(deadlock) {
             const queries = [];
+            let queryIndex = 0;
             
             // SQL Handle queries
             if (deadlock.victim && deadlock.victim.executionStack.length > 0) {
                 const sqlHandle = deadlock.victim.executionStack[0].sqlhandle;
                 if (sqlHandle) {
-                    queries.push(`
-                        <h4>Get Full Query Text (Victim):</h4>
-                        <div class="code-block">
-SELECT 
+                    const query = `SELECT 
     text,
     statement_start_offset,
     statement_end_offset
-FROM sys.dm_exec_sql_text(${sqlHandle});
-                        </div>
+FROM sys.dm_exec_sql_text(${sqlHandle});`;
+                    
+                    queries.push(`
+                        <h4>Get Full Query Text (Victim):</h4>
+                        <div class="code-block" id="query-${queryIndex}">${query}</div>
+                        <button class="btn btn-secondary" onclick="executeDiagnosticQuery('${query.replace(/'/g, "\\'").replace(/\n/g, '\\n')}', ${queryIndex})" style="margin-top: 10px;">▶️ Execute Query</button>
+                        <div id="result-${queryIndex}" class="diagnostic-result" style="display: none; margin-top: 10px;"></div>
                     `);
+                    queryIndex++;
                 }
             }
 
             // Resource queries
             Object.values(deadlock.resources).forEach(resource => {
                 if (resource.hobtid) {
-                    queries.push(`
-                        <h4>Find Object/Index for Hobt ID ${resource.hobtid}:</h4>
-                        <div class="code-block">
-SELECT 
+                    const query = `SELECT 
     o.name AS table_name,
     i.name AS index_name,
     i.type_desc
 FROM sys.partitions p
 JOIN sys.objects o ON p.object_id = o.object_id
 JOIN sys.indexes i ON p.object_id = i.object_id AND p.index_id = i.index_id
-WHERE p.hobt_id = ${resource.hobtid};
-                        </div>
+WHERE p.hobt_id = ${resource.hobtid};`;
+
+                    queries.push(`
+                        <h4>Find Object/Index for Hobt ID ${resource.hobtid}:</h4>
+                        <div class="code-block" id="query-${queryIndex}">${query}</div>
+                        <button class="btn btn-secondary" onclick="executeDiagnosticQuery('${query.replace(/'/g, "\\'").replace(/\n/g, '\\n')}', ${queryIndex})" style="margin-top: 10px;">▶️ Execute Query</button>
+                        <div id="result-${queryIndex}" class="diagnostic-result" style="display: none; margin-top: 10px;"></div>
                     `);
+                    queryIndex++;
                 }
             });
 
@@ -2201,6 +2245,133 @@ WHERE p.hobt_id = ${resource.hobtid};
             }
             document.getElementById(filterInputId).value = value;
             applyFilters();
+        }
+
+        // Execute diagnostic query
+        async function executeDiagnosticQuery(query, queryIndex) {
+            const server = document.getElementById('serverInput').value.trim();
+            const user = document.getElementById('userInput').value.trim();
+            const password = document.getElementById('passwordInput').value.trim();
+            
+            if (!server) {
+                alert('Database connection information is required. Please fill in the server details at the top of the page.');
+                return;
+            }
+
+            // Build connection string
+            let connectionString = `Server=${server};`;
+            if (user) {
+                connectionString += `User Id=${user};Password=${password || ''};`;
+            } else {
+                connectionString += `Integrated Security=true;`;
+            }
+            connectionString += `Connect Timeout=30;`;
+
+            const resultDiv = document.getElementById(`result-${queryIndex}`);
+            resultDiv.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; margin: 10px auto;"></div><p>Executing query...</p>';
+            resultDiv.style.display = 'block';
+
+            try {
+                const response = await fetch('/api/deadlock/execute-diagnostic-query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        connectionString: connectionString,
+                        query: query.replace(/\\n/g, '\n').replace(/\\'/g, "'"),
+                        timeoutSeconds: 30
+                    }),
+                });
+
+                const result = await response.json();
+
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Failed to execute query');
+                }
+
+                // Display results
+                let resultHtml = `<h5>Query Results (${result.recordCount} rows, ${result.executionTimeMs.toFixed(2)}ms)</h5>`;
+                
+                if (result.results && result.results.length > 0) {
+                    resultHtml += '<table>';
+                    
+                    // Header
+                    resultHtml += '<thead><tr>';
+                    result.columnNames.forEach(col => {
+                        resultHtml += `<th>${col}</th>`;
+                    });
+                    resultHtml += '</tr></thead>';
+                    
+                    // Data rows
+                    resultHtml += '<tbody>';
+                    result.results.forEach(row => {
+                        resultHtml += '<tr>';
+                        result.columnNames.forEach(col => {
+                            const value = row[col];
+                            resultHtml += `<td>${value !== null && value !== undefined ? value : 'NULL'}</td>`;
+                        });
+                        resultHtml += '</tr>';
+                    });
+                    resultHtml += '</tbody></table>';
+                } else {
+                    resultHtml += '<p>No results returned.</p>';
+                }
+
+                resultDiv.innerHTML = resultHtml;
+
+            } catch (error) {
+                console.error('Error executing diagnostic query:', error);
+                resultDiv.innerHTML = `<div style="color: var(--danger); padding: 10px; background: var(--bg-primary); border-radius: 5px;">
+                    <strong>Error:</strong> ${error.message}
+                </div>`;
+            }
+        }
+
+        // Load predefined queries
+        async function loadPredefinedQueries() {
+            const container = document.getElementById('predefinedQueries');
+            container.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; margin: 10px auto;"></div><p>Loading predefined queries...</p>';
+
+            try {
+                const response = await fetch('/api/deadlock/predefined-queries');
+                const queries = await response.json();
+
+                if (!response.ok) {
+                    throw new Error('Failed to load predefined queries');
+                }
+
+                let html = '<div class="accordion">';
+                queries.forEach((query, index) => {
+                    html += `
+                        <div class="accordion-item">
+                            <div class="accordion-header" onclick="toggleAccordion('predefined-${index}')">
+                                <span><strong>${query.name}</strong> - ${query.description}</span>
+                                <span>▼</span>
+                            </div>
+                            <div class="accordion-content" id="accordion-predefined-${index}">
+                                <div class="code-block" style="margin-bottom: 10px;">${query.query}</div>
+                                <button class="btn" onclick="executePredefinedQuery('${query.query.replace(/'/g, "\\'").replace(/\n/g, '\\n')}', 'predefined-${index}')">▶️ Execute Query</button>
+                                <div id="result-predefined-${index}" class="diagnostic-result" style="display: none; margin-top: 10px;"></div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+
+                container.innerHTML = html;
+
+            } catch (error) {
+                console.error('Error loading predefined queries:', error);
+                container.innerHTML = `<div style="color: var(--danger); padding: 10px;">
+                    <strong>Error:</strong> ${error.message}
+                </div>`;
+            }
+        }
+
+        // Execute predefined query
+        async function executePredefinedQuery(query, queryId) {
+            return await executeDiagnosticQuery(query, queryId);
         }
 
     </script>

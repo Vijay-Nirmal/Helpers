@@ -1,19 +1,5 @@
 namespace DeadlockAnalyzer.Models;
 
-public class DatabaseConnectionRequest
-{
-    public string ConnectionString { get; set; } = string.Empty;
-    public string ExtendedEventSessionName { get; set; } = string.Empty;
-}
-
-public class DatabaseConnectionResponse
-{
-    public bool IsConnected { get; set; }
-    public string Message { get; set; } = string.Empty;
-    public string ServerVersion { get; set; } = string.Empty;
-    public string DatabaseName { get; set; } = string.Empty;
-}
-
 public class DeadlockEventsRequest
 {
     public string ConnectionString { get; set; } = string.Empty;
@@ -40,7 +26,9 @@ public class DeadlockEvent
 
 public class DiagnosticQueryRequest
 {
-    public string ConnectionString { get; set; } = string.Empty;
+    public string Server { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
     public string Query { get; set; } = string.Empty;
     public int TimeoutSeconds { get; set; } = 30;
 }
@@ -55,17 +43,16 @@ public class DiagnosticQueryResponse
     public double ExecutionTimeMs { get; set; }
 }
 
-public class ExtendedEventSession
-{
-    public string Name { get; set; } = string.Empty;
-    public string State { get; set; } = string.Empty;
-    public bool IsRunning { get; set; }
-    public DateTime? CreateTime { get; set; }
-}
-
 public class PredefinedQuery
 {
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string Query { get; set; } = string.Empty;
+}
+
+public class ExtendedEventsRequest
+{
+    public string Server { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
 }

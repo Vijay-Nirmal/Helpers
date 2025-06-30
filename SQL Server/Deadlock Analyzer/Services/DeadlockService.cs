@@ -15,106 +15,47 @@ public class DeadlockService : IDeadlockService
         _logger = logger;
     }
 
-    public async Task<DatabaseConnectionResponse> TestConnectionAsync(DatabaseConnectionRequest request)
+    public async Task<DeadlockEventsResponse> GetDeadlockEventsAsync(ExtendedEventsRequest request)
     {
         try
         {
-            using var connection = new SqlConnection(request.ConnectionString);
+            // Build connection string from individual components
+            var connectionStringBuilder = new SqlConnectionStringBuilder
+            {
+                DataSource = request.Server,
+                UserID = request.Username,
+                Password = request.Password,
+                TrustServerCertificate = true,
+                ConnectTimeout = 30
+            };
+
+            using var connection = new SqlConnection(connectionStringBuilder.ConnectionString);
             await connection.OpenAsync();
 
-            var command = new SqlCommand("SELECT @@VERSION, DB_NAME()", connection);
-            using var reader = await command.ExecuteReaderAsync();
-            
-            if (await reader.ReadAsync())
-            {
-                var serverVersion = reader.GetString(0);
-                var databaseName = reader.IsDBNull(1) ? "master" : reader.GetString(1);
-
-                return new DatabaseConnectionResponse
-                {
-                    IsConnected = true,
-                    Message = "Connection successful",
-                    ServerVersion = serverVersion,
-                    DatabaseName = databaseName
-                };
-            }
-
-            return new DatabaseConnectionResponse
-            {
-                IsConnected = false,
-                Message = "Unable to retrieve server information"
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to test database connection");
-            return new DatabaseConnectionResponse
-            {
-                IsConnected = false,
-                Message = $"Connection failed: {ex.Message}"
-            };
-        }
-    }
-
-    public async Task<DeadlockEventsResponse> GetDeadlockEventsAsync(DeadlockEventsRequest request)
-    {
-        try
-        {
-            using var connection = new SqlConnection(request.ConnectionString);
-            await connection.OpenAsync();
-
-            // First, check if the session exists and is running
-            var sessionCheckQuery = @"
-                SELECT s.name, s.startup_state
-                FROM sys.server_event_sessions s
-                WHERE s.name = @SessionName";
-
-            using var sessionCheckCommand = new SqlCommand(sessionCheckQuery, connection);
-            sessionCheckCommand.Parameters.AddWithValue("@SessionName", request.ExtendedEventSessionName);
-            
-            using var sessionReader = await sessionCheckCommand.ExecuteReaderAsync();
-            if (!await sessionReader.ReadAsync())
-            {
-                return new DeadlockEventsResponse
-                {
-                    Success = false,
-                    Message = $"Extended Event session '{request.ExtendedEventSessionName}' not found"
-                };
-            }
-            sessionReader.Close();
-
-            // Build the query to get deadlock events
+            // Query to get deadlock information from Extended Events
             var query = @"
                 WITH DeadlockEvents AS (
                     SELECT 
                         object_name,
                         CAST(event_data AS XML) AS event_data_xml,
-                        file_name,
-                        file_offset,
                         timestamp_utc
                     FROM sys.fn_xe_file_target_read_file(
                         (SELECT CAST(t.target_data AS XML).value('(EventFileTarget/File/@name)[1]', 'NVARCHAR(256)')
                          FROM sys.dm_xe_sessions s
                          INNER JOIN sys.dm_xe_session_targets t ON s.address = t.event_session_address
-                         WHERE s.name = @SessionName AND t.target_name = 'event_file'),
+                         WHERE s.name IN ('system_health', 'AlwaysOn_health') AND t.target_name = 'event_file'),
                         NULL, NULL, NULL
                     )
                     WHERE object_name = 'xml_deadlock_report'
                 )
-                SELECT TOP (@MaxRecords)
+                SELECT TOP (100)
                     timestamp_utc,
                     event_data_xml.value('(event/data[@name=""xml_report""]/value)[1]', 'NVARCHAR(MAX)') AS xml_report,
-                    @SessionName as session_name
+                    'system_health' as session_name
                 FROM DeadlockEvents
-                WHERE (@StartDate IS NULL OR timestamp_utc >= @StartDate)
-                  AND (@EndDate IS NULL OR timestamp_utc <= @EndDate)
                 ORDER BY timestamp_utc DESC";
 
             using var command = new SqlCommand(query, connection);
-            command.Parameters.AddWithValue("@SessionName", request.ExtendedEventSessionName);
-            command.Parameters.AddWithValue("@MaxRecords", request.MaxRecords);
-            command.Parameters.AddWithValue("@StartDate", (object?)request.StartDate ?? DBNull.Value);
-            command.Parameters.AddWithValue("@EndDate", (object?)request.EndDate ?? DBNull.Value);
             command.CommandTimeout = 60;
 
             var events = new List<DeadlockEvent>();
@@ -156,7 +97,17 @@ public class DeadlockService : IDeadlockService
         
         try
         {
-            using var connection = new SqlConnection(request.ConnectionString);
+            // Build connection string from individual components
+            var connectionStringBuilder = new SqlConnectionStringBuilder
+            {
+                DataSource = request.Server,
+                UserID = request.Username,
+                Password = request.Password,
+                TrustServerCertificate = true,
+                ConnectTimeout = 30
+            };
+
+            using var connection = new SqlConnection(connectionStringBuilder.ConnectionString);
             await connection.OpenAsync();
 
             using var command = new SqlCommand(request.Query, connection);
@@ -223,50 +174,82 @@ public class DeadlockService : IDeadlockService
         }
     }
 
-    public async Task<List<ExtendedEventSession>> GetExtendedEventSessionsAsync(string connectionString)
+    public List<PredefinedQuery> GetPredefinedQueries()
     {
-        try
+        return new List<PredefinedQuery>
         {
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
-
-            var query = @"
-                SELECT 
-                    s.name,
-                    CASE WHEN rs.name IS NOT NULL THEN 'STARTED' ELSE 'STOPPED' END as state,
-                    CASE WHEN rs.name IS NOT NULL THEN 1 ELSE 0 END as is_running,
-                    s.create_time
-                FROM sys.server_event_sessions s
-                LEFT JOIN sys.dm_xe_sessions rs ON s.name = rs.name
-                WHERE EXISTS (
-                    SELECT 1 
-                    FROM sys.server_event_session_events e 
-                    WHERE e.event_session_id = s.event_session_id 
-                    AND e.name = 'xml_deadlock_report'
-                )
-                ORDER BY s.name";
-
-            using var command = new SqlCommand(query, connection);
-            using var reader = await command.ExecuteReaderAsync();
-
-            var sessions = new List<ExtendedEventSession>();
-            while (await reader.ReadAsync())
+            new PredefinedQuery
             {
-                sessions.Add(new ExtendedEventSession
-                {
-                    Name = reader.GetString("name"),
-                    State = reader.GetString("state"),
-                    IsRunning = reader.GetBoolean("is_running"),
-                    CreateTime = reader.IsDBNull("create_time") ? null : reader.GetDateTime("create_time")
-                });
+                Name = "Current Active Sessions",
+                Description = "Shows currently active database sessions",
+                Query = @"
+                    SELECT 
+                        s.session_id,
+                        s.login_name,
+                        s.host_name,
+                        s.program_name,
+                        s.status,
+                        s.cpu_time,
+                        s.memory_usage,
+                        s.total_scheduled_time,
+                        s.total_elapsed_time,
+                        s.last_request_start_time,
+                        s.last_request_end_time,
+                        r.blocking_session_id,
+                        r.wait_type,
+                        r.wait_time,
+                        r.wait_resource
+                    FROM sys.dm_exec_sessions s
+                    LEFT JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+                    WHERE s.is_user_process = 1
+                    ORDER BY s.cpu_time DESC"
+            },
+            new PredefinedQuery
+            {
+                Name = "Blocking Sessions",
+                Description = "Shows sessions that are blocking other sessions",
+                Query = @"
+                    SELECT 
+                        blocking.session_id AS blocking_session_id,
+                        blocking.login_name AS blocking_login,
+                        blocking.host_name AS blocking_host,
+                        blocking.program_name AS blocking_program,
+                        blocked.session_id AS blocked_session_id,
+                        blocked.login_name AS blocked_login,
+                        blocked.wait_type,
+                        blocked.wait_time,
+                        blocked.wait_resource,
+                        st.text AS blocking_sql_text
+                    FROM sys.dm_exec_requests blocked
+                    INNER JOIN sys.dm_exec_sessions blocking ON blocked.blocking_session_id = blocking.session_id
+                    OUTER APPLY sys.dm_exec_sql_text(blocking.most_recent_sql_handle) st
+                    WHERE blocked.blocking_session_id > 0
+                    ORDER BY blocked.wait_time DESC"
+            },
+            new PredefinedQuery
+            {
+                Name = "Lock Statistics",
+                Description = "Shows current lock statistics by resource type",
+                Query = @"
+                    SELECT 
+                        resource_type,
+                        resource_database_id,
+                        DB_NAME(resource_database_id) AS database_name,
+                        request_mode,
+                        request_status,
+                        COUNT(*) AS lock_count
+                    FROM sys.dm_tran_locks
+                    WHERE resource_database_id > 0
+                    GROUP BY resource_type, resource_database_id, request_mode, request_status
+                    ORDER BY lock_count DESC"
+            },
+            new PredefinedQuery
+            {
+                Name = "Recent Deadlocks (Error Log)",
+                Description = "Shows recent deadlock information from SQL Server error log",
+                Query = @"
+                    EXEC xp_readerrorlog 0, 1, N'deadlock';"
             }
-
-            return sessions;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to retrieve Extended Event sessions");
-            return new List<ExtendedEventSession>();
-        }
+        };
     }
 }
