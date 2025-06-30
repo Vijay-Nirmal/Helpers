@@ -33,14 +33,14 @@ public class DeadlockService : IDeadlockService
                         (SELECT CAST(t.target_data AS XML).value('(EventFileTarget/File/@name)[1]', 'NVARCHAR(256)')
                          FROM sys.dm_xe_sessions s
                          INNER JOIN sys.dm_xe_session_targets t ON s.address = t.event_session_address
-                         WHERE s.name IN ('system_health', 'AlwaysOn_health') AND t.target_name = 'event_file'),
+                         WHERE s.name IN ('system_health') AND t.target_name = 'event_file'),
                         NULL, NULL, NULL
                     )
                     WHERE object_name = 'xml_deadlock_report'
                 )
                 SELECT TOP (100)
                     timestamp_utc,
-                    event_data_xml.value('(event/data[@name=""xml_report""]/value)[1]', 'NVARCHAR(MAX)') AS xml_report,
+                    event_data_xml.value('(event/data[@name=""xml_report""]/value)[1]') AS xml_report,
                     'system_health' as session_name
                 FROM DeadlockEvents
                 ORDER BY timestamp_utc DESC";

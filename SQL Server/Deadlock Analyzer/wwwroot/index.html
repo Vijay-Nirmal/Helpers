@@ -605,6 +605,16 @@
                 <button class="btn btn-secondary" onclick="exportToJson()" style="margin-left: 10px;">💾 Export to JSON</button>
             </div>
 
+            <!-- Parsing Errors Section (if any) -->
+            <div class="section" id="parsingErrorsSection" style="display: none;">
+                <h2 class="section-title" style="color: var(--warning);">⚠️ Parsing Issues</h2>
+                <div id="parsingErrorsSummary" style="background: var(--bg-tertiary); padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+                    <!-- Parsing errors summary will be populated here -->
+                </div>
+                <button class="btn btn-secondary" onclick="showParsingErrorsModal()">🔍 View Parsing Errors</button>
+                <button class="btn btn-secondary" onclick="downloadAllErrorReports()" style="margin-left: 10px;">📥 Download Error Reports</button>
+            </div>
+
             <!-- Diagnostic Queries Section -->
             <div class="section">
                 <h2 class="section-title">🔧 Diagnostic Queries</h2>
@@ -698,6 +708,10 @@
         // Chart instances for proper cleanup
         let victimChart = null;
         let objectChart = null;
+        
+        // Error tracking
+        let parsingErrors = [];
+        let rawXmlContent = '';
 
         // Initialize the application
         document.addEventListener('DOMContentLoaded', function() {
@@ -820,6 +834,10 @@
                 return;
             }
 
+            // Store raw XML content for error reporting
+            rawXmlContent = xmlContent;
+            parsingErrors = [];
+            
             showLoading(true);
             
             setTimeout(() => {
@@ -828,116 +846,338 @@
                     parseDeadlockXML(xmlContent);
                     console.log(`Successfully parsed ${deadlockData.length} deadlock reports`);
                     
-                    if (deadlockData.length === 0) {
+                    // Check if we have any successful parses or only errors
+                    if (deadlockData.length === 0 && parsingErrors.length === 0) {
                         throw new Error('No valid deadlock reports found in the input');
                     }
                     
-                    console.log('Analyzing deadlocks...');
-                    analyzeDeadlocks();
-                    console.log('Rendering dashboard...');
-                    renderDashboard();
-                    saveToCache();
-                    showDashboard();
-                    
-                    // Show success message
-                    const successMsg = document.createElement('div');
-                    successMsg.style.cssText = `
-                        position: fixed;
-                        top: 20px;
-                        right: 20px;
-                        background: var(--success);
-                        color: white;
-                        padding: 15px 20px;
-                        border-radius: 5px;
-                        z-index: 1001;
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                    `;
-                    successMsg.innerHTML = `✅ Successfully processed ${deadlockData.length} deadlock reports!`;
-                    document.body.appendChild(successMsg);
-                    
-                    setTimeout(() => {
-                        if (successMsg.parentNode) {
-                            successMsg.parentNode.removeChild(successMsg);
-                        }
-                    }, 5000);
+                    // Show parsing results (including errors if any)
+                    if (parsingErrors.length > 0) {
+                        showParsingErrorsModal();
+                    } else {
+                        // No errors, proceed normally
+                        proceedWithAnalysis();
+                    }
                     
                 } catch (error) {
                     console.error('Error processing deadlocks:', error);
-                    
-                    // Show detailed error message
-                    const errorMsg = `
-                        <div style="background: var(--danger); color: white; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                            <h3>❌ Error Processing Deadlock Data</h3>
-                            <p><strong>Error:</strong> ${error.message}</p>
-                            <hr style="margin: 15px 0; border: none; border-top: 1px solid rgba(255,255,255,0.3);">
-                            <h4>💡 Troubleshooting Tips:</h4>
-                            <ul style="margin: 10px 0; padding-left: 20px;">
-                                <li><strong>Line-by-line format:</strong> Each line should contain a complete deadlock XML element</li>
-                                <li><strong>XML format:</strong> Ensure each line starts with &lt;deadlock&gt; and ends with &lt;/deadlock&gt;</li>
-                                <li><strong>Valid XML:</strong> Check for unclosed tags or special characters that need escaping</li>
-                                <li><strong>File encoding:</strong> Ensure the file is saved in UTF-8 encoding</li>
-                            </ul>
-                            <p><strong>Sample format:</strong> Each line should look like:<br>
-                            <code style="background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; font-size: 12px; word-break: break-all;">
-                            &lt;deadlock&gt;&lt;victim-list&gt;...&lt;/victim-list&gt;&lt;process-list&gt;...&lt;/process-list&gt;&lt;resource-list&gt;...&lt;/resource-list&gt;&lt;/deadlock&gt;
-                            </code></p>
-                        </div>
-                    `;
-                    
-                    // Show error in a modal or alert
-                    const errorModal = document.createElement('div');
-                    errorModal.style.cssText = `
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        background: rgba(0,0,0,0.8);
-                        z-index: 1002;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        padding: 20px;
-                    `;
-                    
-                    const errorContent = document.createElement('div');
-                    errorContent.style.cssText = `
-                        background: var(--bg-secondary);
-                        border-radius: 10px;
-                        padding: 30px;
-                        max-width: 800px;
-                        max-height: 80vh;
-                        overflow-y: auto;
-                        border: 1px solid var(--border);
-                        position: relative;
-                    `;
-                    
-                    errorContent.innerHTML = errorMsg + `
-                        <div style="text-align: center; margin-top: 20px;">
-                            <button class="btn" onclick="this.closest('.error-modal').remove()">Close</button>
-                        </div>
-                    `;
-                    
-                    errorModal.className = 'error-modal';
-                    errorModal.appendChild(errorContent);
-                    document.body.appendChild(errorModal);
-                    
-                    // Close modal when clicking outside
-                    errorModal.addEventListener('click', function(e) {
-                        if (e.target === errorModal) {
-                            errorModal.remove();
-                        }
-                    });
-                    
+                    showDetailedErrorModal(error);
                 } finally {
                     showLoading(false);
                 }
             }, 100);
         }
+        
+        // Proceed with analysis after handling errors
+        function proceedWithAnalysis() {
+            if (deadlockData.length === 0) {
+                alert('No successfully parsed deadlock reports to analyze.');
+                return;
+            }
+            
+            console.log('Analyzing deadlocks...');
+            analyzeDeadlocks();
+            console.log('Rendering dashboard...');
+            renderDashboard();
+            saveToCache();
+            showDashboard();
+            
+            // Show success message
+            const successMsg = document.createElement('div');
+            successMsg.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: var(--success);
+                color: white;
+                padding: 15px 20px;
+                border-radius: 5px;
+                z-index: 1001;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            `;
+            successMsg.innerHTML = `✅ Successfully processed ${deadlockData.length} deadlock reports!`;
+            document.body.appendChild(successMsg);
+            
+            setTimeout(() => {
+                if (successMsg.parentNode) {
+                    successMsg.parentNode.removeChild(successMsg);
+                }
+            }, 5000);
+        }
+        
+        // Show parsing errors modal with options
+        function showParsingErrorsModal() {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                z-index: 1002;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: var(--bg-secondary);
+                border-radius: 10px;
+                padding: 30px;
+                max-width: 900px;
+                max-height: 80vh;
+                overflow-y: auto;
+                border: 1px solid var(--border);
+                position: relative;
+            `;
+            
+            const errorSummary = parsingErrors.length === 1 ? 
+                `1 deadlock report failed to parse` : 
+                `${parsingErrors.length} deadlock reports failed to parse`;
+            
+            const successSummary = deadlockData.length === 1 ? 
+                `1 deadlock report was successfully parsed` : 
+                `${deadlockData.length} deadlock reports were successfully parsed`;
+            
+            content.innerHTML = `
+                <h2 style="color: var(--warning); margin-bottom: 20px;">⚠️ Parsing Issues Detected</h2>
+                
+                <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+                    <p><strong>Summary:</strong></p>
+                    <ul style="margin: 10px 0; padding-left: 20px;">
+                        <li style="color: var(--success);">✅ ${successSummary}</li>
+                        <li style="color: var(--danger);">❌ ${errorSummary}</li>
+                    </ul>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <h3 style="color: var(--danger); margin-bottom: 15px;">Failed Reports:</h3>
+                    <div style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 5px;">
+                        ${parsingErrors.map((error, index) => `
+                            <div style="padding: 15px; border-bottom: 1px solid var(--border); ${index === parsingErrors.length - 1 ? 'border-bottom: none;' : ''}">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                                    <strong style="color: var(--danger);">Report ${error.lineNumber || index + 1}:</strong>
+                                    <button class="btn btn-secondary" onclick="downloadErrorReport(${index})" style="padding: 5px 10px; font-size: 12px;">
+                                        📥 Download
+                                    </button>
+                                </div>
+                                <div style="background: var(--bg-primary); padding: 10px; border-radius: 3px; font-family: monospace; font-size: 12px; margin-bottom: 10px;">
+                                    <strong>Error:</strong> ${error.message}
+                                </div>
+                                <details style="margin-bottom: 10px;">
+                                    <summary style="cursor: pointer; color: var(--accent-primary);">View Raw XML</summary>
+                                    <div style="background: var(--bg-primary); padding: 10px; border-radius: 3px; font-family: monospace; font-size: 11px; margin-top: 10px; max-height: 200px; overflow-y: auto; word-break: break-all;">
+                                        ${error.rawXml.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                                    </div>
+                                </details>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                    ${deadlockData.length > 0 ? `
+                        <button class="btn" onclick="skipErrorsAndProceed()" style="background: var(--success);">
+                            ✅ Continue with ${deadlockData.length} Successful Report${deadlockData.length === 1 ? '' : 's'}
+                        </button>
+                    ` : ''}
+                    <button class="btn btn-secondary" onclick="downloadAllErrorReports()">
+                        📥 Download All Failed Reports
+                    </button>
+                    <button class="btn btn-secondary" onclick="downloadParsingErrorLog()">
+                        📋 Download Error Log
+                    </button>
+                    <button class="btn btn-danger" onclick="closeParsingErrorsModal()">
+                        ❌ Cancel
+                    </button>
+                </div>
+            `;
+            
+            modal.className = 'parsing-errors-modal';
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            // Close modal when clicking outside
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    closeParsingErrorsModal();
+                }
+            });
+        }
+        
+        // Skip errors and proceed with successful parses
+        function skipErrorsAndProceed() {
+            closeParsingErrorsModal();
+            proceedWithAnalysis();
+        }
+        
+        // Close parsing errors modal
+        function closeParsingErrorsModal() {
+            const modal = document.querySelector('.parsing-errors-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+        
+        // Download individual error report
+        function downloadErrorReport(errorIndex) {
+            const error = parsingErrors[errorIndex];
+            const content = `Deadlock Report Parsing Error
+================================
+
+Line/Report Number: ${error.lineNumber || errorIndex + 1}
+Error Message: ${error.message}
+Timestamp: ${new Date().toISOString()}
+
+Raw XML Content:
+${error.rawXml}
+
+Stack Trace:
+${error.stack || 'No stack trace available'}
+`;
+            
+            downloadTextFile(content, `deadlock-error-report-${errorIndex + 1}.txt`);
+        }
+        
+        // Download all error reports
+        function downloadAllErrorReports() {
+            const content = `Deadlock Reports Parsing Errors
+===============================
+
+Total Failed Reports: ${parsingErrors.length}
+Total Successful Reports: ${deadlockData.length}
+Analysis Date: ${new Date().toISOString()}
+
+${parsingErrors.map((error, index) => `
+Report ${error.lineNumber || index + 1} Error:
+${'='.repeat(50)}
+Error Message: ${error.message}
+Stack Trace: ${error.stack || 'No stack trace available'}
+
+Raw XML Content:
+${error.rawXml}
+
+${'='.repeat(50)}
+`).join('\n')}
+`;
+            
+            downloadTextFile(content, `deadlock-parsing-errors-${new Date().toISOString().split('T')[0]}.txt`);
+        }
+        
+        // Download parsing error log
+        function downloadParsingErrorLog() {
+            const logData = {
+                timestamp: new Date().toISOString(),
+                totalReports: parsingErrors.length + deadlockData.length,
+                successfulReports: deadlockData.length,
+                failedReports: parsingErrors.length,
+                errors: parsingErrors.map((error, index) => ({
+                    reportNumber: error.lineNumber || index + 1,
+                    errorMessage: error.message,
+                    stackTrace: error.stack || 'No stack trace available',
+                    rawXmlLength: error.rawXml.length
+                }))
+            };
+            
+            const content = JSON.stringify(logData, null, 2);
+            downloadTextFile(content, `deadlock-parsing-log-${new Date().toISOString().split('T')[0]}.json`);
+        }
+        
+        // Utility function to download text files
+        function downloadTextFile(content, filename) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        // Show detailed error modal for critical errors
+        function showDetailedErrorModal(error) {
+            const errorMsg = `
+                <div style="background: var(--danger); color: white; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                    <h3>❌ Critical Error Processing Deadlock Data</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                    <hr style="margin: 15px 0; border: none; border-top: 1px solid rgba(255,255,255,0.3);">
+                    <h4>💡 Troubleshooting Tips:</h4>
+                    <ul style="margin: 10px 0; padding-left: 20px;">
+                        <li><strong>Line-by-line format:</strong> Each line should contain a complete deadlock XML element</li>
+                        <li><strong>XML format:</strong> Ensure each line starts with &lt;deadlock&gt; and ends with &lt;/deadlock&gt;</li>
+                        <li><strong>Valid XML:</strong> Check for unclosed tags or special characters that need escaping</li>
+                        <li><strong>File encoding:</strong> Ensure the file is saved in UTF-8 encoding</li>
+                    </ul>
+                    <p><strong>Sample format:</strong> Each line should look like:<br>
+                    <code style="background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; font-size: 12px; word-break: break-all;">
+                    &lt;deadlock&gt;&lt;victim-list&gt;...&lt;/victim-list&gt;&lt;process-list&gt;...&lt;/process-list&gt;&lt;resource-list&gt;...&lt;/resource-list&gt;&lt;/deadlock&gt;
+                    </code></p>
+                </div>
+            `;
+            
+            // Show error in a modal
+            const errorModal = document.createElement('div');
+            errorModal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                z-index: 1002;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            `;
+            
+            const errorContent = document.createElement('div');
+            errorContent.style.cssText = `
+                background: var(--bg-secondary);
+                border-radius: 10px;
+                padding: 30px;
+                max-width: 800px;
+                max-height: 80vh;
+                overflow-y: auto;
+                border: 1px solid var(--border);
+                position: relative;
+            `;
+            
+            errorContent.innerHTML = errorMsg + `
+                <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
+                    <button class="btn btn-secondary" onclick="downloadRawXmlContent()">📥 Download Raw XML</button>
+                    <button class="btn" onclick="this.closest('.error-modal').remove()">Close</button>
+                </div>
+            `;
+            
+            errorModal.className = 'error-modal';
+            errorModal.appendChild(errorContent);
+            document.body.appendChild(errorModal);
+            
+            // Close modal when clicking outside
+            errorModal.addEventListener('click', function(e) {
+                if (e.target === errorModal) {
+                    errorModal.remove();
+                }
+            });
+        }
+        
+        // Download raw XML content
+        function downloadRawXmlContent() {
+            if (rawXmlContent) {
+                downloadTextFile(rawXmlContent, `raw-deadlock-data-${new Date().toISOString().split('T')[0]}.xml`);
+            } else {
+                alert('No raw XML content available to download.');
+            }
+        }
 
         // Parse XML content
         function parseDeadlockXML(xmlContent) {
             deadlockData = [];
+            parsingErrors = [];
             
             // Check if content contains multiple lines (each line is a deadlock report)
             const lines = xmlContent.trim().split('\n').filter(line => line.trim().length > 0);
@@ -955,7 +1195,13 @@
                         // Check for parsing errors
                         const parseError = xmlDoc.getElementsByTagName('parsererror');
                         if (parseError.length > 0) {
-                            console.warn(`Error parsing line ${i + 1}:`, parseError[0].textContent);
+                            const errorMsg = parseError[0].textContent || 'XML parsing error';
+                            parsingErrors.push({
+                                lineNumber: i + 1,
+                                message: `XML Parse Error: ${errorMsg}`,
+                                rawXml: line,
+                                stack: `Line ${i + 1}: ${errorMsg}`
+                            });
                             continue;
                         }
                         
@@ -964,22 +1210,51 @@
                             const parsedDeadlock = parseDeadlockElement(deadlocks[0]);
                             if (parsedDeadlock) {
                                 deadlockData.push(parsedDeadlock);
+                            } else {
+                                parsingErrors.push({
+                                    lineNumber: i + 1,
+                                    message: 'Failed to parse deadlock structure - missing required elements',
+                                    rawXml: line,
+                                    stack: `Line ${i + 1}: Deadlock structure validation failed`
+                                });
                             }
-                        }
-                        
-                        // Also check for deadlock-list format
-                        const deadlockLists = xmlDoc.getElementsByTagName('deadlock-list');
-                        if (deadlockLists.length > 0) {
-                            const deadlocksInList = deadlockLists[0].getElementsByTagName('deadlock');
-                            for (let j = 0; j < deadlocksInList.length; j++) {
-                                const parsedDeadlock = parseDeadlockElement(deadlocksInList[j]);
-                                if (parsedDeadlock) {
-                                    deadlockData.push(parsedDeadlock);
+                        } else {
+                            // Also check for deadlock-list format
+                            const deadlockLists = xmlDoc.getElementsByTagName('deadlock-list');
+                            if (deadlockLists.length > 0) {
+                                const deadlocksInList = deadlockLists[0].getElementsByTagName('deadlock');
+                                let lineHasValidDeadlock = false;
+                                for (let j = 0; j < deadlocksInList.length; j++) {
+                                    const parsedDeadlock = parseDeadlockElement(deadlocksInList[j]);
+                                    if (parsedDeadlock) {
+                                        deadlockData.push(parsedDeadlock);
+                                        lineHasValidDeadlock = true;
+                                    }
                                 }
+                                if (!lineHasValidDeadlock) {
+                                    parsingErrors.push({
+                                        lineNumber: i + 1,
+                                        message: 'No valid deadlock elements found in deadlock-list',
+                                        rawXml: line,
+                                        stack: `Line ${i + 1}: Empty or invalid deadlock-list`
+                                    });
+                                }
+                            } else {
+                                parsingErrors.push({
+                                    lineNumber: i + 1,
+                                    message: 'No deadlock or deadlock-list elements found',
+                                    rawXml: line,
+                                    stack: `Line ${i + 1}: Missing deadlock elements`
+                                });
                             }
                         }
                     } catch (error) {
-                        console.warn(`Error parsing line ${i + 1}:`, error);
+                        parsingErrors.push({
+                            lineNumber: i + 1,
+                            message: `JavaScript Error: ${error.message}`,
+                            rawXml: line,
+                            stack: error.stack || `Line ${i + 1}: ${error.message}`
+                        });
                         continue;
                     }
                 }
@@ -992,30 +1267,67 @@
                     // Check for parsing errors
                     const parseError = xmlDoc.getElementsByTagName('parsererror');
                     if (parseError.length > 0) {
-                        throw new Error('Invalid XML format: ' + parseError[0].textContent);
+                        const errorMsg = parseError[0].textContent || 'XML parsing error';
+                        parsingErrors.push({
+                            lineNumber: 1,
+                            message: `XML Parse Error: ${errorMsg}`,
+                            rawXml: xmlContent,
+                            stack: `Single document: ${errorMsg}`
+                        });
+                        return; // Cannot continue with invalid XML
                     }
                     
                     // Look for deadlock elements
                     const deadlocks = xmlDoc.getElementsByTagName('deadlock');
                     
                     if (deadlocks.length === 0) {
-                        throw new Error('No deadlock elements found in XML');
+                        parsingErrors.push({
+                            lineNumber: 1,
+                            message: 'No deadlock elements found in XML document',
+                            rawXml: xmlContent,
+                            stack: 'Single document: Missing deadlock elements'
+                        });
+                        return;
                     }
 
                     for (let i = 0; i < deadlocks.length; i++) {
                         const deadlock = deadlocks[i];
-                        const parsedDeadlock = parseDeadlockElement(deadlock);
-                        if (parsedDeadlock) {
-                            deadlockData.push(parsedDeadlock);
+                        try {
+                            const parsedDeadlock = parseDeadlockElement(deadlock);
+                            if (parsedDeadlock) {
+                                deadlockData.push(parsedDeadlock);
+                            } else {
+                                parsingErrors.push({
+                                    lineNumber: i + 1,
+                                    message: `Failed to parse deadlock ${i + 1} - missing required elements`,
+                                    rawXml: deadlock.outerHTML || xmlContent,
+                                    stack: `Deadlock ${i + 1}: Structure validation failed`
+                                });
+                            }
+                        } catch (error) {
+                            parsingErrors.push({
+                                lineNumber: i + 1,
+                                message: `Error parsing deadlock ${i + 1}: ${error.message}`,
+                                rawXml: deadlock.outerHTML || xmlContent,
+                                stack: error.stack || `Deadlock ${i + 1}: ${error.message}`
+                            });
                         }
                     }
                 } catch (error) {
-                    throw new Error('Invalid XML format: ' + error.message);
+                    parsingErrors.push({
+                        lineNumber: 1,
+                        message: `Critical XML Error: ${error.message}`,
+                        rawXml: xmlContent,
+                        stack: error.stack || `Single document: ${error.message}`
+                    });
                 }
             }
             
-            if (deadlockData.length === 0) {
-                throw new Error('No valid deadlock reports found in the input');
+            // Log parsing results
+            console.log(`Parsing completed: ${deadlockData.length} successful, ${parsingErrors.length} errors`);
+            
+            if (deadlockData.length === 0 && parsingErrors.length === 0) {
+                throw new Error('No deadlock reports found in the input');
             }
         }
 
@@ -1056,6 +1368,11 @@
                         const proc = processElements[j];
                         const processId = proc.getAttribute('id');
                         
+                        if (!processId) {
+                            console.warn('Process element missing id attribute');
+                            continue;
+                        }
+                        
                         processes[processId] = {
                             id: processId,
                             spid: proc.getAttribute('spid'),
@@ -1085,6 +1402,11 @@
                         const proc = processElements[j];
                         const processId = proc.getAttribute('id');
                         
+                        if (!processId) {
+                            console.warn('Process element missing id attribute');
+                            continue;
+                        }
+                        
                         processes[processId] = {
                             id: processId,
                             spid: proc.getAttribute('spid'),
@@ -1107,6 +1429,11 @@
                             inputBuffer: parseInputBuffer(proc)
                         };
                     }
+                }
+
+                // Validate that we have at least one process
+                if (Object.keys(processes).length === 0) {
+                    throw new Error('No valid processes found in deadlock');
                 }
 
                 // Parse resources
@@ -1159,6 +1486,11 @@
                 // For backwards compatibility, set victim to the first victim if available
                 const victim = victims.length > 0 ? victims[0] : null;
 
+                // Validate that we have essential data
+                if (victims.length === 0 && blockers.length === 0) {
+                    throw new Error('No victim or blocker processes identified');
+                }
+
                 return {
                     id: Date.now() + Math.random(),
                     timestamp: new Date().toISOString(),
@@ -1172,6 +1504,7 @@
                 };
             } catch (error) {
                 console.warn('Error parsing deadlock element:', error);
+                // Return null instead of throwing to allow the caller to handle the error
                 return null;
             }
         }
@@ -1434,6 +1767,7 @@
             renderProcessesTable();
             renderUniqueDeadlocks();
             renderCharts();
+            renderParsingErrorsSection();
         }
 
         // Render metrics cards
@@ -1949,6 +2283,35 @@ WHERE p.hobt_id = ${resource.hobtid};`;
             });
         }
 
+        // Render parsing errors section
+        function renderParsingErrorsSection() {
+            const section = document.getElementById('parsingErrorsSection');
+            const summary = document.getElementById('parsingErrorsSummary');
+            
+            if (parsingErrors && parsingErrors.length > 0) {
+                section.style.display = 'block';
+                summary.innerHTML = `
+                    <p><strong>Parsing Results:</strong></p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
+                        <div>
+                            <span style="color: var(--success); font-weight: bold;">✅ Successfully Parsed:</span>
+                            <span style="font-size: 1.2em; margin-left: 10px;">${deadlockData.length} report${deadlockData.length === 1 ? '' : 's'}</span>
+                        </div>
+                        <div>
+                            <span style="color: var(--danger); font-weight: bold;">❌ Failed to Parse:</span>
+                            <span style="font-size: 1.2em; margin-left: 10px;">${parsingErrors.length} report${parsingErrors.length === 1 ? '' : 's'}</span>
+                        </div>
+                    </div>
+                    <p style="margin-top: 15px; color: var(--text-secondary);">
+                        <strong>Note:</strong> Analysis is based on successfully parsed reports only. 
+                        Review failed reports to ensure no critical deadlock information is missing.
+                    </p>
+                `;
+            } else {
+                section.style.display = 'none';
+            }
+        }
+
         // Apply filters
         // Apply filters
         function applyFilters() {
@@ -2137,6 +2500,7 @@ WHERE p.hobt_id = ${resource.hobtid};`;
             try {
                 const cache = {
                     deadlockData: deadlockData,
+                    parsingErrors: parsingErrors,
                     timestamp: new Date().getTime()
                 };
                 localStorage.setItem('deadlockAnalyzerCache', JSON.stringify(cache));
@@ -2152,11 +2516,36 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                 const cache = JSON.parse(cachedData);
                 // Cache expires after 1 hour
                 if (new Date().getTime() - cache.timestamp < 3600 * 1000) {
-                    deadlockData = cache.deadlockData;
+                    deadlockData = cache.deadlockData || [];
+                    parsingErrors = cache.parsingErrors || [];
                     if (deadlockData && deadlockData.length > 0) {
                         analyzeDeadlocks();
                         renderDashboard();
                         showDashboard();
+                        
+                        // Show cache info if there were parsing errors
+                        if (parsingErrors && parsingErrors.length > 0) {
+                            const cacheMsg = document.createElement('div');
+                            cacheMsg.style.cssText = `
+                                position: fixed;
+                                top: 20px;
+                                right: 20px;
+                                background: var(--warning);
+                                color: var(--bg-primary);
+                                padding: 15px 20px;
+                                border-radius: 5px;
+                                z-index: 1001;
+                                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                            `;
+                            cacheMsg.innerHTML = `⚠️ Loaded from cache: ${deadlockData.length} successful, ${parsingErrors.length} failed reports`;
+                            document.body.appendChild(cacheMsg);
+                            
+                            setTimeout(() => {
+                                if (cacheMsg.parentNode) {
+                                    cacheMsg.parentNode.removeChild(cacheMsg);
+                                }
+                            }, 5000);
+                        }
                     }
                 }
             }
@@ -2167,9 +2556,12 @@ WHERE p.hobt_id = ${resource.hobtid};`;
             localStorage.removeItem('deadlockAnalyzerCache');
             deadlockData = [];
             filteredData = [];
+            parsingErrors = [];
+            rawXmlContent = '';
             document.getElementById('dashboard').classList.remove('active');
             document.getElementById('uploadSection').style.display = 'block';
             document.getElementById('xmlInput').value = '';
+            document.getElementById('connectionStringInput').value = '';
             alert('Cache cleared successfully!');
         }
 
