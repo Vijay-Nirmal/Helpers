@@ -3181,22 +3181,27 @@ WHERE p.hobt_id = ${resource.hobtid};`;
             let highlightEndChar = -1;
             
             // Calculate which lines contain the deadlock statement
+            // Note: stmtStart and stmtEnd are byte positions from SQL Server, need to convert to character positions
             if (stmtStart > 0 && stmtEnd > stmtStart) {
+                // Convert byte positions to character positions (SQL Server uses 2 bytes per Unicode character)
+                const charStmtStart = Math.floor(stmtStart / 2);
+                const charStmtEnd = Math.floor(stmtEnd / 2);
+                
                 for (let i = 0; i < lines.length; i++) {
                     const lineLength = lines[i].length + 1; // +1 for newline character
                     const lineStart = currentCharPos;
                     const lineEnd = currentCharPos + lineLength - 1;
                     
                     // Check if statement start falls within this line
-                    if (highlightStartLine === -1 && stmtStart >= lineStart && stmtStart <= lineEnd) {
+                    if (highlightStartLine === -1 && charStmtStart >= lineStart && charStmtStart <= lineEnd) {
                         highlightStartLine = i;
-                        highlightStartChar = stmtStart - lineStart;
+                        highlightStartChar = charStmtStart - lineStart;
                     }
                     
                     // Check if statement end falls within this line
-                    if (stmtEnd >= lineStart && stmtEnd <= lineEnd) {
+                    if (charStmtEnd >= lineStart && charStmtEnd <= lineEnd) {
                         highlightEndLine = i;
-                        highlightEndChar = stmtEnd - lineStart;
+                        highlightEndChar = charStmtEnd - lineStart;
                         break;
                     }
                     
