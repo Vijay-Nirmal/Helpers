@@ -2421,14 +2421,23 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                     const formattedSql = formatSqlWithLineNumbers(fullSqlText, stmtStart, stmtEnd);
                     
                     targetDiv.innerHTML = `
-                        <div class="content-header">📄 Full SQL Statement (Cached)</div>
+                        <div class="content-header">📄 Full SQL Statement (Cached)
+                            <button onclick="copySqlToClipboard('${fullSqlText.replace(/'/g, "\\'").replace(/\r?\n/g, '\\n')}')" 
+                                    style="margin-left: 10px; padding: 4px 8px; font-size: 11px; background: var(--primary); color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                📋 Copy SQL
+                            </button>
+                        </div>
                         <div style="background: var(--bg-primary); padding: 15px; border-radius: 5px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; line-height: 1.4; overflow-x: auto; border: 1px solid var(--border);">
                             <pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word;">${formattedSql}</pre>
                         </div>
                         ${stmtStart !== 0 || stmtEnd !== -1 ? `
                             <div style="margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: 5px; font-size: 12px; color: var(--text-secondary);">
                                 <strong>Deadlock Statement Range:</strong> Characters ${stmtStart} to ${stmtEnd === -1 ? 'end' : stmtEnd}
-                                ${stmtEnd !== -1 ? `<br><strong>Extracted Statement:</strong><br><code style="background: var(--bg-primary); padding: 5px; border-radius: 3px; display: block; margin-top: 5px; white-space: pre-wrap;">${statementSqlText}</code>` : ''}
+                                ${stmtEnd !== -1 ? `<br><strong>Extracted Statement:</strong><br><code style="background: var(--bg-primary); padding: 5px; border-radius: 3px; display: block; margin-top: 5px; white-space: pre-wrap;">${statementSqlText}</code>
+                                <button onclick="copySqlToClipboard('${statementSqlText.replace(/'/g, "\\'").replace(/\r?\n/g, '\\n')}')" 
+                                        style="margin-top: 5px; padding: 3px 6px; font-size: 10px; background: var(--secondary); color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                    📋 Copy Statement Only
+                                </button>` : ''}
                             </div>
                         ` : ''}
                     `;
@@ -2464,14 +2473,23 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                     const formattedSql = formatSqlWithLineNumbers(fullSqlText, stmtStart, stmtEnd);
                     
                     targetDiv.innerHTML = `
-                        <div class="content-header">📄 Full SQL Statement</div>
+                        <div class="content-header">📄 Full SQL Statement
+                            <button onclick="copySqlToClipboard('${fullSqlText.replace(/'/g, "\\'").replace(/\r?\n/g, '\\n')}')" 
+                                    style="margin-left: 10px; padding: 4px 8px; font-size: 11px; background: var(--primary); color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                📋 Copy SQL
+                            </button>
+                        </div>
                         <div style="background: var(--bg-primary); padding: 15px; border-radius: 5px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; line-height: 1.4; overflow-x: auto; border: 1px solid var(--border);">
                             <pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word;">${formattedSql}</pre>
                         </div>
                         ${stmtStart !== 0 || stmtEnd !== -1 ? `
                             <div style="margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: 5px; font-size: 12px; color: var(--text-secondary);">
                                 <strong>Deadlock Statement Range:</strong> Characters ${stmtStart} to ${stmtEnd === -1 ? 'end' : stmtEnd}
-                                ${stmtEnd !== -1 ? `<br><strong>Extracted Statement:</strong><br><code style="background: var(--bg-primary); padding: 5px; border-radius: 3px; display: block; margin-top: 5px; white-space: pre-wrap;">${statementSqlText}</code>` : ''}
+                                ${stmtEnd !== -1 ? `<br><strong>Extracted Statement:</strong><br><code style="background: var(--bg-primary); padding: 5px; border-radius: 3px; display: block; margin-top: 5px; white-space: pre-wrap;">${statementSqlText}</code>
+                                <button onclick="copySqlToClipboard('${statementSqlText.replace(/'/g, "\\'").replace(/\r?\n/g, '\\n')}')" 
+                                        style="margin-top: 5px; padding: 3px 6px; font-size: 10px; background: var(--secondary); color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                    📋 Copy Statement Only
+                                </button>` : ''}
                             </div>
                         ` : ''}
                     `;
@@ -3327,6 +3345,36 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                 alert('XML copied to clipboard!');
             }, () => {
                 alert('Failed to copy XML.');
+            });
+        }
+
+        // Copy SQL to clipboard
+        function copySqlToClipboard(sqlText) {
+            // Decode the escaped characters
+            const decodedSql = sqlText.replace(/\\'/g, "'").replace(/\\n/g, '\n');
+            
+            navigator.clipboard.writeText(decodedSql).then(() => {
+                // Show a temporary success message
+                const button = event.target;
+                const originalText = button.innerHTML;
+                button.innerHTML = '✅ Copied!';
+                button.style.background = 'var(--success)';
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.style.background = originalText.includes('Statement Only') ? 'var(--secondary)' : 'var(--primary)';
+                }, 1500);
+            }, () => {
+                // Show a temporary error message
+                const button = event.target;
+                const originalText = button.innerHTML;
+                button.innerHTML = '❌ Failed';
+                button.style.background = 'var(--danger)';
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.style.background = originalText.includes('Statement Only') ? 'var(--secondary)' : 'var(--primary)';
+                }, 1500);
             });
         }
 
