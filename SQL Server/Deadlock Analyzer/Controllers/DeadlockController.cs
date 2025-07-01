@@ -36,7 +36,7 @@ public class DeadlockController : ControllerBase
             }
 
             // Combine all XML reports into a single response
-            var combinedXml = string.Join("\n", result.Events.Select(e => e.XmlReport));
+            var combinedXml = "<deadlock-list>" + string.Join("\n", result.Events.Select(e => e.XmlReport)) + "</deadlock-list>";
             
             return Ok(combinedXml);
         }

@@ -61,7 +61,7 @@ public class DeadlockService : IDeadlockService
                 )
                 SELECT TOP ({maxRecords})
                     timestamp_utc,
-                    event_data_xml.value('(event/data[@name=""xml_report""]/value)[1]') AS xml_report,
+                    CAST(event_data_xml.query('(event/data[@name=""xml_report""]/value)[1]') AS NVARCHAR(MAX)) AS xml_report,
                     '{sessionName}' as session_name
                 FROM DeadlockEvents
                 ORDER BY timestamp_utc DESC";
