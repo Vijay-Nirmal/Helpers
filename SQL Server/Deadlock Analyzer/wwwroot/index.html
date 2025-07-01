@@ -2518,6 +2518,7 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                 }
                 
                 let query = '';
+                let dataQuery = '';
                 let resourceType = 'Unknown';
                 
                 if (waitResource.includes('KEY:')) {
@@ -2534,11 +2535,37 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                             i.type_desc AS index_type,
                             p.partition_number,
                             p.rows AS partition_rows,
-                            '${hashValue}' AS hash_value
+                            '${hashValue}' AS hash_value,
+                            SCHEMA_NAME(o.schema_id) AS schema_name,
+                            o.object_id,
+                            i.index_id
                         FROM sys.partitions p
                         JOIN sys.objects o ON p.object_id = o.object_id
                         JOIN sys.indexes i ON p.object_id = i.object_id AND p.index_id = i.index_id
                         WHERE p.hobt_id = ${hobtId}`;
+                        
+                        // Query to get actual locked data from the table using lockres
+                        dataQuery = `
+                        DECLARE @TableName NVARCHAR(256), @SchemaName NVARCHAR(256), @IndexName NVARCHAR(256), @IndexType NVARCHAR(50)
+                        DECLARE @FullTableName NVARCHAR(512), @SQL NVARCHAR(MAX), @HashValue NVARCHAR(50)
+                        
+                        SELECT 
+                            @TableName = o.name,
+                            @SchemaName = SCHEMA_NAME(o.schema_id),
+                            @IndexName = i.name,
+                            @IndexType = i.type_desc
+                        FROM sys.partitions p
+                        JOIN sys.objects o ON p.object_id = o.object_id
+                        JOIN sys.indexes i ON p.object_id = i.object_id AND p.index_id = i.index_id
+                        WHERE p.hobt_id = ${hobtId}
+                        
+                        SET @FullTableName = QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName)
+                        SET @HashValue = '(${hashValue})'
+                        
+                        -- Get the actual locked records using %%lockres%%
+                        SET @SQL = 'SELECT *, %%lockres%% AS LockResource FROM ' + @FullTableName + ' WITH (NOLOCK) WHERE %%lockres%% = ''' + @HashValue + ''''
+                        
+                        EXEC sp_executesql @SQL`;
                     }
                 } else if (waitResource.includes('PAGE:')) {
                     // Parse page lock format: PAGE: db_id:file_id:page_id
@@ -2574,6 +2601,32 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                         LEFT JOIN sys.indexes i ON p.object_id = i.object_id AND p.index_id = i.index_id
                         WHERE au.first_page <= ${pageId} AND au.last_page >= ${pageId}
                         `;
+                        
+                        // Query to get actual locked data from the page using physloc
+                        dataQuery = `
+                        DECLARE @TableName NVARCHAR(256), @SchemaName NVARCHAR(256), @IndexName NVARCHAR(256)
+                        DECLARE @FullTableName NVARCHAR(512), @SQL NVARCHAR(MAX), @PageFilter NVARCHAR(50)
+                        
+                        SELECT TOP 1
+                            @TableName = o.name,
+                            @SchemaName = SCHEMA_NAME(o.schema_id),
+                            @IndexName = ISNULL(i.name, 'Heap')
+                        FROM sys.allocation_units au
+                        JOIN sys.partitions p ON au.container_id = p.partition_id
+                        JOIN sys.objects o ON p.object_id = o.object_id
+                        LEFT JOIN sys.indexes i ON p.object_id = i.object_id AND p.index_id = i.index_id
+                        WHERE au.first_page <= ${pageId} AND au.last_page >= ${pageId}
+                        
+                        IF @TableName IS NOT NULL
+                        BEGIN
+                            SET @FullTableName = QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName)
+                            SET @PageFilter = '(${fileId}:${pageId}%'
+                            
+                            -- Get the actual locked records on this page using sys.fn_PhysLocFormatter
+                            SET @SQL = 'SELECT sys.fn_PhysLocFormatter(%%physloc%%) AS PhysicalLocation, * FROM ' + @FullTableName + ' WITH (NOLOCK) WHERE sys.fn_PhysLocFormatter(%%physloc%%) LIKE ''' + @PageFilter + ''''
+                            
+                            EXEC sp_executesql @SQL
+                        END`;
                     }
                 } else if (waitResource.includes('OBJECT:')) {
                     // Parse object lock format: OBJECT: db_id:object_id
@@ -2591,6 +2644,28 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                             o.modify_date
                         FROM sys.objects o
                         WHERE o.object_id = ${objectId}`;
+                        
+                        // Query to get sample data from the object if it's a table (table locks get sample data)
+                        dataQuery = `
+                        DECLARE @TableName NVARCHAR(256), @SchemaName NVARCHAR(256), @ObjectType NVARCHAR(50)
+                        DECLARE @FullTableName NVARCHAR(512), @SQL NVARCHAR(MAX)
+                        
+                        SELECT 
+                            @TableName = o.name,
+                            @SchemaName = SCHEMA_NAME(o.schema_id),
+                            @ObjectType = o.type_desc
+                        FROM sys.objects o
+                        WHERE o.object_id = ${objectId}
+                        
+                        IF @ObjectType IN ('USER_TABLE', 'VIEW')
+                        BEGIN
+                            SET @FullTableName = QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName)
+                            
+                            -- For table locks, get sample records from the table (top 20 for performance)
+                            SET @SQL = 'SELECT TOP 20 * FROM ' + @FullTableName + ' WITH (NOLOCK)'
+                            
+                            EXEC sp_executesql @SQL
+                        END`;
                     }
                 } else if (waitResource.includes('RID:')) {
                     // Parse RID lock format: RID: db_id:file_id:page_id:slot_id
@@ -2606,6 +2681,30 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                             '${slotId}' AS slot_id,
                             'Row identifier lock' AS lock_description
                         `;
+                        
+                        // Query to get the actual row data using physloc for RID locks
+                        dataQuery = `
+                        DECLARE @TableName NVARCHAR(256), @SchemaName NVARCHAR(256)
+                        DECLARE @FullTableName NVARCHAR(512), @SQL NVARCHAR(MAX), @RidFilter NVARCHAR(50)
+                        
+                        SELECT TOP 1
+                            @TableName = o.name,
+                            @SchemaName = SCHEMA_NAME(o.schema_id)
+                        FROM sys.allocation_units au
+                        JOIN sys.partitions p ON au.container_id = p.partition_id
+                        JOIN sys.objects o ON p.object_id = o.object_id
+                        WHERE au.first_page <= ${pageId} AND au.last_page >= ${pageId}
+                        
+                        IF @TableName IS NOT NULL
+                        BEGIN
+                            SET @FullTableName = QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName)
+                            SET @RidFilter = '(${fileId}:${pageId}:${slotId})'
+                            
+                            -- Get the actual locked row using sys.fn_PhysLocFormatter
+                            SET @SQL = 'SELECT sys.fn_PhysLocFormatter(%%physloc%%) AS PhysicalLocation, * FROM ' + @FullTableName + ' WITH (NOLOCK) WHERE sys.fn_PhysLocFormatter(%%physloc%%) = ''' + @RidFilter + ''''
+                            
+                            EXEC sp_executesql @SQL
+                        END`;
                     }
                 }
                 
@@ -2629,6 +2728,80 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                         content += '</table>';
                     } else {
                         content += `<div>No information found for resource: ${waitResource}</div>`;
+                    }
+                    
+                    // Execute data query if available and resource is KEY, PAGE, or OBJECT lock
+                    if (dataQuery && (waitResource.includes('KEY:') || waitResource.includes('PAGE:') || waitResource.includes('OBJECT:') || waitResource.includes('RID:'))) {
+                        try {
+                            const dataResult = await executeDiagnosticQueryInternal(dataQuery);
+                            
+                            if (dataResult.success && dataResult.results && dataResult.results.length > 0) {
+                                // Determine the type of data retrieved based on lock type
+                                let dataHeader = '';
+                                let dataDescription = '';
+                                
+                                if (waitResource.includes('KEY:')) {
+                                    dataHeader = '🔑 Actual Locked Records (Key Lock)';
+                                    dataDescription = 'Records matching the hash value using %%lockres%% filter';
+                                } else if (waitResource.includes('PAGE:')) {
+                                    dataHeader = '📄 Records on Locked Page';
+                                    dataDescription = 'Records on the specific page using sys.fn_PhysLocFormatter(%%physloc%%) filter';
+                                } else if (waitResource.includes('RID:')) {
+                                    dataHeader = '📍 Exact Locked Row (RID)';
+                                    dataDescription = 'The specific row using sys.fn_PhysLocFormatter(%%physloc%%) filter';
+                                } else if (waitResource.includes('OBJECT:')) {
+                                    dataHeader = '📊 Sample Records from Table (Object Lock)';
+                                    dataDescription = 'Sample records from the locked table (top 20 with NOLOCK hint for performance)';
+                                }
+                                
+                                content += `<div class="content-header" style="margin-top: 20px;">${dataHeader}</div>`;
+                                content += `<div style="margin-bottom: 10px; padding: 8px; background: var(--bg-tertiary); border-radius: 4px; font-size: 12px; color: var(--text-secondary);">${dataDescription}</div>`;
+                                content += '<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">';
+                                
+                                // Add header for data table
+                                const dataHeaders = Object.keys(dataResult.results[0]);
+                                content += '<tr>' + dataHeaders.map(h => `<th style="border: 1px solid var(--border); padding: 8px; background: var(--bg-secondary); font-size: 12px;">${h}</th>`).join('') + '</tr>';
+                                
+                                // Add data rows (limit to prevent overwhelming display)
+                                const maxRows = waitResource.includes('OBJECT:') ? 20 : 50; // More rows for object locks (sample data), fewer for specific locks
+                                dataResult.results.slice(0, maxRows).forEach(row => {
+                                    content += '<tr>' + dataHeaders.map(h => {
+                                        let cellValue = row[h];
+                                        if (cellValue === null) cellValue = 'NULL';
+                                        else if (typeof cellValue === 'string' && cellValue.length > 100) {
+                                            cellValue = cellValue.substring(0, 100) + '...';
+                                        }
+                                        return `<td style="border: 1px solid var(--border); padding: 6px; font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${cellValue}</td>`;
+                                    }).join('') + '</tr>';
+                                });
+                                
+                                content += '</table>';
+                                
+                                // Add count information
+                                if (dataResult.results.length > 0) {
+                                    content += `<div style="margin-top: 10px; padding: 8px; background: var(--bg-tertiary); border-radius: 4px; font-size: 12px; color: var(--text-secondary);">
+                                        <strong>Found ${dataResult.results.length} record${dataResult.results.length === 1 ? '' : 's'}</strong>
+                                        ${waitResource.includes('KEY:') ? ' - These are the exact records that were locked during the deadlock' : ''}
+                                        ${waitResource.includes('PAGE:') ? ' - These are all records on the locked page' : ''}
+                                        ${waitResource.includes('RID:') ? ' - This is the exact row that was locked' : ''}
+                                        ${waitResource.includes('OBJECT:') ? ' - Sample of records from the locked table' : ''}
+                                    </div>`;
+                                }
+                            } else {
+                                content += `<div style="margin-top: 20px; padding: 10px; background: var(--bg-tertiary); border-radius: 4px;">
+                                    <strong>Note:</strong> Could not retrieve sample records from the table. This might be due to:
+                                    <ul style="margin: 5px 0 0 20px;">
+                                        <li>Table doesn't exist or is not accessible</li>
+                                        <li>Insufficient permissions</li>
+                                        <li>System table or special object type</li>
+                                    </ul>
+                                </div>`;
+                            }
+                        } catch (dataError) {
+                            content += `<div style="margin-top: 20px; padding: 10px; background: var(--bg-tertiary); border-radius: 4px;">
+                                <strong>Note:</strong> Could not retrieve sample records: ${dataError.message}
+                            </div>`;
+                        }
                     }
                     
                     // Cache the result
