@@ -216,6 +216,7 @@
         .metric-label {
             color: var(--text-secondary);
             font-weight: 500;
+            font-size: 0.85rem;
         }
 
         .section {
@@ -618,8 +619,19 @@
             <div id="dbConnectionForm" style="display: grid; grid-template-columns: 1fr; gap: 15px; margin-bottom: 20px;">
                 <input type="text" id="connectionStringInput" placeholder="Connection String (e.g., Server=localhost;Database=master;Integrated Security=true;)" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 12px; border-radius: 5px;">
                 <input type="text" id="dbConnectionString" placeholder="Connection String for Enhanced Analysis (for SQL Handle, Resource, and DB Name lookups)" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 12px; border-radius: 5px;">
+                
+                <!-- Extended Event Parameters -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
+                    <input type="text" id="extendedEventSession" placeholder="Extended Event Session (default: system_health)" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px; border-radius: 5px; font-size: 14px;">
+                    <input type="datetime-local" id="startDateTime" placeholder="Start Date/Time" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px; border-radius: 5px; font-size: 14px;">
+                    <input type="datetime-local" id="endDateTime" placeholder="End Date/Time" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px; border-radius: 5px; font-size: 14px;">
+                </div>
+                <input type="number" id="maxRecords" placeholder="Max Records (default: 1000)" min="1" max="10000" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px; border-radius: 5px; font-size: 14px;">
+                
                 <div style="font-size: 12px; color: var(--text-muted); margin-top: -10px;">
-                    💡 The enhanced analysis connection is used for the "Get Full SQL", "Get Resource Info", and "Get DB Name" buttons in detailed deadlock views.
+                    💡 The enhanced analysis connection is used for the "Get Full SQL", "Get Resource Info", and "Get DB Name" buttons in detailed deadlock views.<br>
+                    🔍 Extended Event Session: Specify which extended event session to query (default: system_health).<br>
+                    📅 Date Range: Optionally filter deadlocks by date/time range.
                 </div>
             </div>
              <div style="text-align: center; margin-bottom: 20px;">
@@ -715,15 +727,6 @@
                 </div>
                 <button class="btn btn-secondary" onclick="showParsingErrorsModal()">🔍 View Parsing Errors</button>
                 <button class="btn btn-secondary" onclick="downloadAllErrorReports()" style="margin-left: 10px;">📥 Download Error Reports</button>
-            </div>
-
-            <!-- Diagnostic Queries Section -->
-            <div class="section">
-                <h2 class="section-title">🔧 Diagnostic Queries</h2>
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">Execute predefined queries to diagnose deadlock-related issues. Make sure to fill in the database connection details above.</p>
-                <div id="predefinedQueries">
-                    <button class="btn" onclick="loadPredefinedQueries()">📋 Load Predefined Queries</button>
-                </div>
             </div>
 
             <!-- Filter Bar -->
@@ -895,6 +898,10 @@
 
         async function processDeadlocksFromDb() {
             const connectionString = document.getElementById('connectionStringInput').value.trim();
+            const extendedEventSession = document.getElementById('extendedEventSession').value.trim();
+            const startDateTime = document.getElementById('startDateTime').value;
+            const endDateTime = document.getElementById('endDateTime').value;
+            const maxRecords = document.getElementById('maxRecords').value;
 
             if (!connectionString) {
                 alert('Please enter a connection string.');
@@ -904,14 +911,30 @@
             showLoading(true);
 
             try {
+                const requestBody = {
+                    connectionString: connectionString
+                };
+
+                // Add optional parameters if provided
+                if (extendedEventSession) {
+                    requestBody.extendedEventSessionName = extendedEventSession;
+                }
+                if (startDateTime) {
+                    requestBody.startDate = new Date(startDateTime).toISOString();
+                }
+                if (endDateTime) {
+                    requestBody.endDate = new Date(endDateTime).toISOString();
+                }
+                if (maxRecords && parseInt(maxRecords) > 0) {
+                    requestBody.maxRecords = parseInt(maxRecords);
+                }
+
                 const response = await fetch('/api/deadlock/extended-events', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        connectionString
-                    }),
+                    body: JSON.stringify(requestBody),
                 });
 
                 if (!response.ok) {
@@ -921,7 +944,10 @@
 
                 const xmlContent = await response.text();
                 if (!xmlContent || xmlContent.trim() === '') {
-                     throw new Error('No deadlock reports found in the database for the "system_health" session.');
+                    const sessionName = extendedEventSession || 'system_health';
+                    const dateRange = startDateTime || endDateTime ? 
+                        ` for the specified date range (${startDateTime || 'start'} to ${endDateTime || 'end'})` : '';
+                    throw new Error(`No deadlock reports found in the database for the "${sessionName}" session${dateRange}.`);
                 }
                 processDeadlocks(xmlContent);
 
@@ -2052,12 +2078,6 @@ ${'='.repeat(50)}
                     <div id="xmlViewContainer" style="display: none;">
                         <pre class="code-block" id="xmlContent" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; font-size: 11px;"></pre>
                     </div>
-                </div>
-
-                <!-- Diagnostic Queries -->
-                <div class="section">
-                    <h3>🔧 Diagnostic Queries</h3>
-                    ${renderDiagnosticQueries(deadlock)}
                 </div>
 
                 <!-- Fix Suggestions -->

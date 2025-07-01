@@ -47,8 +47,3 @@ public class PredefinedQuery
     public string Description { get; set; } = string.Empty;
     public string Query { get; set; } = string.Empty;
 }
-
-public class ExtendedEventsRequest
-{
-    public string ConnectionString { get; set; } = string.Empty;
-}

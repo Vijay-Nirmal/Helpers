@@ -19,7 +19,7 @@ public class DeadlockController : ControllerBase
     }
 
     [HttpPost("extended-events")]
-    public async Task<ActionResult<string>> GetExtendedEvents([FromBody] ExtendedEventsRequest request)
+    public async Task<ActionResult<string>> GetExtendedEvents([FromBody] DeadlockEventsRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {

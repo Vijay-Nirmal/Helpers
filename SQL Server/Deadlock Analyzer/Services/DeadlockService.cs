@@ -15,7 +15,7 @@ public class DeadlockService : IDeadlockService
         _logger = logger;
     }
 
-    public async Task<DeadlockEventsResponse> GetDeadlockEventsAsync(ExtendedEventsRequest request)
+    public async Task<DeadlockEventsResponse> GetDeadlockEventsAsync(DeadlockEventsRequest request)
     {
         try
         {
@@ -23,7 +23,27 @@ public class DeadlockService : IDeadlockService
             await connection.OpenAsync();
 
             // Query to get deadlock information from Extended Events
-            var query = @"
+            var sessionName = string.IsNullOrWhiteSpace(request.ExtendedEventSessionName) ? "system_health" : request.ExtendedEventSessionName;
+            var maxRecords = request.MaxRecords > 0 ? request.MaxRecords : 100;
+            
+            var whereClause = "WHERE object_name = 'xml_deadlock_report'";
+            if (request.StartDate.HasValue || request.EndDate.HasValue)
+            {
+                if (request.StartDate.HasValue && request.EndDate.HasValue)
+                {
+                    whereClause += $" AND timestamp_utc BETWEEN '{request.StartDate.Value:yyyy-MM-dd HH:mm:ss}' AND '{request.EndDate.Value:yyyy-MM-dd HH:mm:ss}'";
+                }
+                else if (request.StartDate.HasValue)
+                {
+                    whereClause += $" AND timestamp_utc >= '{request.StartDate.Value:yyyy-MM-dd HH:mm:ss}'";
+                }
+                else if (request.EndDate.HasValue)
+                {
+                    whereClause += $" AND timestamp_utc <= '{request.EndDate.Value:yyyy-MM-dd HH:mm:ss}'";
+                }
+            }
+            
+            var query = $@"
                 WITH DeadlockEvents AS (
                     SELECT 
                         object_name,
@@ -33,15 +53,15 @@ public class DeadlockService : IDeadlockService
                         (SELECT CAST(t.target_data AS XML).value('(EventFileTarget/File/@name)[1]', 'NVARCHAR(256)')
                          FROM sys.dm_xe_sessions s
                          INNER JOIN sys.dm_xe_session_targets t ON s.address = t.event_session_address
-                         WHERE s.name IN ('system_health') AND t.target_name = 'event_file'),
+                         WHERE s.name = '{sessionName}' AND t.target_name = 'event_file'),
                         NULL, NULL, NULL
                     )
-                    WHERE object_name = 'xml_deadlock_report'
+                    {whereClause}
                 )
-                SELECT TOP (100)
+                SELECT TOP ({maxRecords})
                     timestamp_utc,
                     event_data_xml.value('(event/data[@name=""xml_report""]/value)[1]') AS xml_report,
-                    'system_health' as session_name
+                    '{sessionName}' as session_name
                 FROM DeadlockEvents
                 ORDER BY timestamp_utc DESC";
 
