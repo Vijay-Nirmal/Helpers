@@ -2335,9 +2335,23 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                 const cacheKey = `${sqlHandle}_${stmtStart}_${stmtEnd}`;
                 if (sqlHandleCache.has(cacheKey)) {
                     const cachedResult = sqlHandleCache.get(cacheKey);
+                    const fullSqlText = typeof cachedResult === 'string' ? cachedResult : cachedResult.fullSql;
+                    const statementSqlText = typeof cachedResult === 'string' ? cachedResult : cachedResult.statementSql;
+                    
+                    // Format SQL with line numbers and highlighting
+                    const formattedSql = formatSqlWithLineNumbers(fullSqlText, stmtStart, stmtEnd);
+                    
                     targetDiv.innerHTML = `
                         <div class="content-header">📄 Full SQL Statement (Cached)</div>
-                        <div style="white-space: pre-wrap; font-family: 'Consolas', monospace;">${cachedResult}</div>
+                        <div style="background: var(--bg-primary); padding: 15px; border-radius: 5px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; line-height: 1.4; overflow-x: auto; border: 1px solid var(--border);">
+                            <pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word;">${formattedSql}</pre>
+                        </div>
+                        ${stmtStart !== 0 || stmtEnd !== -1 ? `
+                            <div style="margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: 5px; font-size: 12px; color: var(--text-secondary);">
+                                <strong>Deadlock Statement Range:</strong> Characters ${stmtStart} to ${stmtEnd === -1 ? 'end' : stmtEnd}
+                                ${stmtEnd !== -1 ? `<br><strong>Extracted Statement:</strong><br><code style="background: var(--bg-primary); padding: 5px; border-radius: 3px; display: block; margin-top: 5px; white-space: pre-wrap;">${statementSqlText}</code>` : ''}
+                            </div>
+                        ` : ''}
                     `;
                     targetDiv.style.display = 'block';
                     button.innerHTML = '✅ Cached';
@@ -2359,16 +2373,28 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                 
                 const result = await executeDiagnosticQueryInternal(query);
                 
-                if (result.success && result.data && result.data.length > 0) {
-                    const sqlText = stmtEnd === -1 ? result.data[0].text : (result.data[0].statement_text || result.data[0].text);
+                if (result.success && result.results && result.results.length > 0) {
+                    const fullSqlText = result.results[0].text;
+                    const statementSqlText = stmtEnd === -1 ? fullSqlText : (result.results[0].statement_text || fullSqlText);
                     
                     // Cache the result
-                    sqlHandleCache.set(cacheKey, sqlText);
+                    sqlHandleCache.set(cacheKey, { fullSql: fullSqlText, statementSql: statementSqlText });
                     updateCacheStatus();
+                    
+                    // Format SQL with line numbers and highlighting
+                    const formattedSql = formatSqlWithLineNumbers(fullSqlText, stmtStart, stmtEnd);
                     
                     targetDiv.innerHTML = `
                         <div class="content-header">📄 Full SQL Statement</div>
-                        <div style="white-space: pre-wrap; font-family: 'Consolas', monospace;">${sqlText || 'No SQL text available'}</div>
+                        <div style="background: var(--bg-primary); padding: 15px; border-radius: 5px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; line-height: 1.4; overflow-x: auto; border: 1px solid var(--border);">
+                            <pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word;">${formattedSql}</pre>
+                        </div>
+                        ${stmtStart !== 0 || stmtEnd !== -1 ? `
+                            <div style="margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: 5px; font-size: 12px; color: var(--text-secondary);">
+                                <strong>Deadlock Statement Range:</strong> Characters ${stmtStart} to ${stmtEnd === -1 ? 'end' : stmtEnd}
+                                ${stmtEnd !== -1 ? `<br><strong>Extracted Statement:</strong><br><code style="background: var(--bg-primary); padding: 5px; border-radius: 3px; display: block; margin-top: 5px; white-space: pre-wrap;">${statementSqlText}</code>` : ''}
+                            </div>
+                        ` : ''}
                     `;
                     targetDiv.style.display = 'block';
                     button.innerHTML = '✅ Retrieved';
@@ -2509,15 +2535,15 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                     
                     let content = `<div class="content-header">🔍 ${resourceType} Information</div>`;
                     
-                    if (result.success && result.data && result.data.length > 0) {
+                    if (result.success && result.results && result.results.length > 0) {
                         content += '<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">';
                         
                         // Add header
-                        const headers = Object.keys(result.data[0]);
+                        const headers = Object.keys(result.results[0]);
                         content += '<tr>' + headers.map(h => `<th style="border: 1px solid var(--border); padding: 8px; background: var(--bg-secondary);">${h}</th>`).join('') + '</tr>';
                         
                         // Add data rows
-                        result.data.forEach(row => {
+                        result.results.forEach(row => {
                             content += '<tr>' + headers.map(h => `<td style="border: 1px solid var(--border); padding: 8px;">${row[h] || 'NULL'}</td>`).join('') + '</tr>';
                         });
                         
@@ -2580,8 +2606,8 @@ WHERE p.hobt_id = ${resource.hobtid};`;
                 const query = `SELECT DB_NAME(${databaseId}) AS database_name`;
                 const result = await executeDiagnosticQueryInternal(query);
                 
-                if (result.success && result.data && result.data.length > 0) {
-                    const dbName = result.data[0].database_name;
+                if (result.success && result.results && result.results.length > 0) {
+                    const dbName = result.results[0].database_name;
                     
                     // Cache the result
                     databaseNameCache.set(databaseId, dbName);
@@ -3058,10 +3084,87 @@ WHERE p.hobt_id = ${resource.hobtid};`;
             let indent = '';
             xml.split(/>\s*</).forEach(node => {
                 if (node.match(/^\//)) indent = indent.substring(2);
-                formatted += indent + '<' + node + '\r\n';
+                formatted += indent + '<' + node + '>\r\n';
                 if (node.match(/^[^/]/) && !node.match(/\/$/)) indent += '  ';
             });
-            return formatted.substring(1, formatted.length - 2);
+            return formatted.substring(1, formatted.length - 3);
+        }
+
+        // Format SQL with line numbers and highlight deadlock location
+        function formatSqlWithLineNumbers(sql, stmtStart = 0, stmtEnd = -1) {
+            if (!sql) return 'No SQL text available';
+            
+            const lines = sql.split(/\r?\n/);
+            let currentCharPos = 0;
+            let highlightStartLine = -1;
+            let highlightEndLine = -1;
+            let highlightStartChar = -1;
+            let highlightEndChar = -1;
+            
+            // Calculate which lines contain the deadlock statement
+            if (stmtStart > 0 && stmtEnd > stmtStart) {
+                for (let i = 0; i < lines.length; i++) {
+                    const lineLength = lines[i].length + 1; // +1 for newline character
+                    const lineStart = currentCharPos;
+                    const lineEnd = currentCharPos + lineLength - 1;
+                    
+                    // Check if statement start falls within this line
+                    if (highlightStartLine === -1 && stmtStart >= lineStart && stmtStart <= lineEnd) {
+                        highlightStartLine = i;
+                        highlightStartChar = stmtStart - lineStart;
+                    }
+                    
+                    // Check if statement end falls within this line
+                    if (stmtEnd >= lineStart && stmtEnd <= lineEnd) {
+                        highlightEndLine = i;
+                        highlightEndChar = stmtEnd - lineStart;
+                        break;
+                    }
+                    
+                    currentCharPos += lineLength;
+                }
+            }
+            
+            const maxLineNumWidth = lines.length.toString().length;
+            
+            return lines.map((line, index) => {
+                const lineNum = (index + 1).toString().padStart(maxLineNumWidth, ' ');
+                const isHighlightLine = highlightStartLine !== -1 && index >= highlightStartLine && index <= highlightEndLine;
+                
+                let formattedLine = line;
+                
+                // Apply highlighting if this line contains part of the deadlock statement
+                if (isHighlightLine) {
+                    const startChar = index === highlightStartLine ? highlightStartChar : 0;
+                    const endChar = index === highlightEndLine ? highlightEndChar : line.length;
+                    
+                    if (startChar >= 0 && endChar >= startChar) {
+                        const before = line.substring(0, startChar);
+                        const highlighted = line.substring(startChar, endChar);
+                        const after = line.substring(endChar);
+                        
+                        formattedLine = before + 
+                            '<span style="background-color: #ff6b6b; color: white; padding: 2px 4px; border-radius: 2px; font-weight: bold;">' + 
+                            highlighted.replace(/</g, '&lt;').replace(/>/g, '&gt;') + 
+                            '</span>' + 
+                            after;
+                    } else {
+                        // Highlight entire line if we can't determine exact character positions
+                        formattedLine = '<span style="background-color: rgba(255, 107, 107, 0.2); display: block; margin: -2px -4px; padding: 2px 4px;">' + 
+                            line.replace(/</g, '&lt;').replace(/>/g, '&gt;') + 
+                            '</span>';
+                    }
+                } else {
+                    // Escape HTML characters for non-highlighted lines
+                    formattedLine = line.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                }
+                
+                const lineNumStyle = isHighlightLine ? 
+                    'color: #ff6b6b; font-weight: bold; background-color: rgba(255, 107, 107, 0.1);' : 
+                    'color: var(--text-muted);';
+                
+                return `<span style="${lineNumStyle} user-select: none; margin-right: 10px; padding-right: 5px; border-right: 1px solid var(--border);">${lineNum}</span>${formattedLine}`;
+            }).join('\n');
         }
 
         // Clear all filters

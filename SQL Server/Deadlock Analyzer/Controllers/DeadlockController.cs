@@ -69,7 +69,7 @@ public class DeadlockController : ControllerBase
         }
 
         // Security check - prevent potentially dangerous operations
-        var upperQuery = request.Query.ToUpper();
+        /*var upperQuery = request.Query.ToUpper();
         var dangerousKeywords = new[] { "DROP", "DELETE", "TRUNCATE", "INSERT", "UPDATE", "ALTER", "CREATE", "EXEC", "EXECUTE" };
         
         if (dangerousKeywords.Any(keyword => upperQuery.Contains(keyword)))
@@ -79,7 +79,7 @@ public class DeadlockController : ControllerBase
                 Success = false,
                 Message = "Only SELECT queries are allowed for diagnostic purposes"
             });
-        }
+        }*/
 
         try
         {

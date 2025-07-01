@@ -50,7 +50,8 @@ public class DeadlockService : IDeadlockService
                         CAST(event_data AS XML) AS event_data_xml,
                         timestamp_utc
                     FROM sys.fn_xe_file_target_read_file(
-                        (SELECT CAST(t.target_data AS XML).value('(EventFileTarget/File/@name)[1]', 'NVARCHAR(256)')
+                        (SELECT LEFT(CAST(t.target_data AS XML).value('(EventFileTarget/File/@name)[1]', 'NVARCHAR(256)'), 
+                            LEN(CAST(t.target_data AS XML).value('(EventFileTarget/File/@name)[1]', 'NVARCHAR(256)')) - 4) + '*.xel'
                          FROM sys.dm_xe_sessions s
                          INNER JOIN sys.dm_xe_session_targets t ON s.address = t.event_session_address
                          WHERE s.name = '{sessionName}' AND t.target_name = 'event_file'),
