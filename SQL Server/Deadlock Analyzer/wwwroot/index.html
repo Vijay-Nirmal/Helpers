@@ -498,6 +498,79 @@
             color: white;
         }
 
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 12px;
+            border-radius: 4px;
+            margin-left: 8px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--accent-primary);
+            color: white;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s ease;
+        }
+
+        .btn-small:hover {
+            background: var(--accent-secondary);
+            transform: translateY(-1px);
+        }
+
+        .btn-small:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .expandable-content {
+            margin-top: 10px;
+            padding: 15px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .expandable-content.sql-content {
+            background: var(--bg-secondary);
+            border-left: 4px solid var(--accent-primary);
+        }
+
+        .expandable-content.resource-content {
+            background: var(--bg-secondary);
+            border-left: 4px solid var(--success);
+        }
+
+        .expandable-content.db-content {
+            background: var(--bg-secondary);
+            border-left: 4px solid var(--warning);
+        }
+
+        .content-header {
+            font-weight: bold;
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--border);
+            border-radius: 50%;
+            border-top-color: var(--accent-primary);
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 5px;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
@@ -544,6 +617,10 @@
 
             <div id="dbConnectionForm" style="display: grid; grid-template-columns: 1fr; gap: 15px; margin-bottom: 20px;">
                 <input type="text" id="connectionStringInput" placeholder="Connection String (e.g., Server=localhost;Database=master;Integrated Security=true;)" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 12px; border-radius: 5px;">
+                <input type="text" id="dbConnectionString" placeholder="Connection String for Enhanced Analysis (for SQL Handle, Resource, and DB Name lookups)" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 12px; border-radius: 5px;">
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: -10px;">
+                    💡 The enhanced analysis connection is used for the "Get Full SQL", "Get Resource Info", and "Get DB Name" buttons in detailed deadlock views.
+                </div>
             </div>
              <div style="text-align: center; margin-bottom: 20px;">
                 <button class="btn" onclick="processDeadlocksFromDb()">🔗 Connect & Analyze</button>
@@ -603,6 +680,31 @@
                 <h2 class="section-title">📤 Export Data</h2>
                 <button class="btn" onclick="exportToExcel()">📊 Export to Excel</button>
                 <button class="btn btn-secondary" onclick="exportToJson()" style="margin-left: 10px;">💾 Export to JSON</button>
+            </div>
+
+            <!-- Cache Status Section -->
+            <div class="section" id="cacheStatusSection">
+                <h2 class="section-title">🗄️ Cache Status</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px;">
+                    <div class="metric-card">
+                        <div class="metric-value" id="sqlHandleCacheCount">0</div>
+                        <div class="metric-label">SQL Handles Cached</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="databaseCacheCount">0</div>
+                        <div class="metric-label">Database Names Cached</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="resourceCacheCount">0</div>
+                        <div class="metric-label">Resources Cached</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="totalCacheCount">0</div>
+                        <div class="metric-label">Total Cached Items</div>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" onclick="clearAllCaches(); updateCacheStatus();">🗑️ Clear All Caches</button>
+                <button class="btn btn-secondary" onclick="updateCacheStatus()" style="margin-left: 10px;">🔄 Refresh Status</button>
             </div>
 
             <!-- Parsing Errors Section (if any) -->
@@ -712,7 +814,12 @@
         // Error tracking
         let parsingErrors = [];
         let rawXmlContent = '';
-
+        
+        // Cache for dynamic queries
+        let sqlHandleCache = new Map();
+        let databaseNameCache = new Map();
+        let resourceInfoCache = new Map();
+        
         // Initialize the application
         document.addEventListener('DOMContentLoaded', function() {
             setupDragAndDrop();
@@ -837,6 +944,11 @@
             // Store raw XML content for error reporting
             rawXmlContent = xmlContent;
             parsingErrors = [];
+            
+            // Clear all caches when starting new analysis
+            sqlHandleCache.clear();
+            databaseNameCache.clear();
+            resourceInfoCache.clear();
             
             showLoading(true);
             
@@ -1391,6 +1503,7 @@ ${'='.repeat(50)}
                             hostname: proc.getAttribute('hostname'),
                             loginname: proc.getAttribute('loginname'),
                             currentdb: proc.getAttribute('currentdb'),
+                            databaseid: proc.getAttribute('currentdb'), // Database ID for lookups
                             executionStack: parseExecutionStack(proc),
                             inputBuffer: parseInputBuffer(proc)
                         };
@@ -1425,6 +1538,7 @@ ${'='.repeat(50)}
                             hostname: proc.getAttribute('hostname'),
                             loginname: proc.getAttribute('loginname'),
                             currentdb: proc.getAttribute('currentdb'),
+                            databaseid: proc.getAttribute('currentdb'), // Database ID for lookups
                             executionStack: parseExecutionStack(proc),
                             inputBuffer: parseInputBuffer(proc)
                         };
@@ -1768,6 +1882,7 @@ ${'='.repeat(50)}
             renderUniqueDeadlocks();
             renderCharts();
             renderParsingErrorsSection();
+            updateCacheStatus();
         }
 
         // Render metrics cards
@@ -1959,22 +2074,34 @@ ${'='.repeat(50)}
         function renderProcessDetails(process, isVictim) {
             if (!process) return '<p>No process information available</p>';
 
+            const resourceId = `resource-${process.spid}-${Math.random().toString(36).substr(2, 9)}`;
+
             return `
                 <p><strong>SPID:</strong> ${process.spid}</p>
                 <p><strong>Application:</strong> ${process.clientapp || 'Unknown'}</p>
                 <p><strong>Host:</strong> ${process.hostname || 'Unknown'}</p>
                 <p><strong>Login:</strong> ${process.loginname || 'Unknown'}</p>
+                <p><strong>Database ID:</strong> ${process.databaseid || 'Unknown'} 
+                    ${process.databaseid ? `<button class="btn-small" onclick="getDatabaseName('${process.databaseid}', 'db-${process.spid}-${process.databaseid}')">🔍 Get DB Name</button>
+                    <div id="db-${process.spid}-${process.databaseid}" class="expandable-content db-content" style="display: none;"></div>` : ''}
+                </p>
                 <p><strong>Isolation Level:</strong> ${process.isolationlevel || 'Unknown'}</p>
                 <p><strong>Transaction:</strong> ${process.transactionname || 'Unknown'}</p>
-                <p><strong>Wait Resource:</strong> ${process.waitresource || 'None'}</p>
+                <p><strong>Wait Resource:</strong> ${process.waitresource || 'None'} 
+                    ${process.waitresource ? `<button class="btn-small" onclick="getResourceInfo('${process.waitresource}', '${resourceId}', '${process.databaseid || ''}')">🔍 Get Resource Info</button>
+                    <div id="${resourceId}" class="expandable-content resource-content" style="display: none;"></div>` : ''}
+                </p>
                 <p><strong>Lock Mode:</strong> ${process.lockMode || 'Unknown'}</p>
                 
                 <h4>Execution Stack:</h4>
-                ${process.executionStack.map(frame => `
+                ${process.executionStack.map((frame, index) => `
                     <div class="code-block">
-                        <strong>Procedure:</strong> ${frame.procname}<br>
+                        <strong>Procedure:</strong> ${frame.procname} 
+                        ${frame.sqlhandle ? `<button class="btn-small" onclick="getSqlFromHandle('${frame.sqlhandle}', 'sql-${process.spid}-${index}', ${frame.stmtstart || 0}, ${frame.stmtend || -1})">🔍 Get Full SQL</button>` : ''}
+                        <br>
                         <strong>Line:</strong> <span class="highlight">${frame.line}</span><br>
                         <strong>Statement:</strong> ${frame.statement}
+                        ${frame.sqlhandle ? `<div id="sql-${process.spid}-${index}" class="expandable-content sql-content" style="display: none;"></div>` : ''}
                     </div>
                 `).join('')}
                 
@@ -2172,6 +2299,324 @@ WHERE p.hobt_id = ${resource.hobtid};`;
             }
 
             return suggestions.length > 0 ? suggestions.join('') : '<p>No specific suggestions available</p>';
+        }
+
+        // Get SQL text from SQL handle with caching
+        async function getSqlFromHandle(sqlHandle, targetId, stmtStart = 0, stmtEnd = -1) {
+            const button = event.target;
+            const targetDiv = document.getElementById(targetId);
+            
+            // Show loading state
+            button.disabled = true;
+            button.innerHTML = '<span class="loading-spinner"></span>Getting SQL...';
+            
+            try {
+                // Check cache first
+                const cacheKey = `${sqlHandle}_${stmtStart}_${stmtEnd}`;
+                if (sqlHandleCache.has(cacheKey)) {
+                    const cachedResult = sqlHandleCache.get(cacheKey);
+                    targetDiv.innerHTML = `
+                        <div class="content-header">📄 Full SQL Statement (Cached)</div>
+                        <div style="white-space: pre-wrap; font-family: 'Consolas', monospace;">${cachedResult}</div>
+                    `;
+                    targetDiv.style.display = 'block';
+                    button.innerHTML = '✅ Cached';
+                    button.disabled = false;
+                    return;
+                }
+                
+                // Build the query
+                const query = stmtEnd === -1 
+                    ? `SELECT text FROM sys.dm_exec_sql_text(${sqlHandle})`
+                    : `SELECT 
+                        text,
+                        CASE 
+                            WHEN ${stmtStart} >= 0 AND ${stmtEnd} > ${stmtStart}
+                            THEN SUBSTRING(text, (${stmtStart}/2) + 1, ((${stmtEnd} - ${stmtStart})/2) + 1)
+                            ELSE text
+                        END AS statement_text
+                    FROM sys.dm_exec_sql_text(${sqlHandle})`;
+                
+                const result = await executeDiagnosticQueryInternal(query);
+                
+                if (result.success && result.data && result.data.length > 0) {
+                    const sqlText = stmtEnd === -1 ? result.data[0].text : (result.data[0].statement_text || result.data[0].text);
+                    
+                    // Cache the result
+                    sqlHandleCache.set(cacheKey, sqlText);
+                    updateCacheStatus();
+                    
+                    targetDiv.innerHTML = `
+                        <div class="content-header">📄 Full SQL Statement</div>
+                        <div style="white-space: pre-wrap; font-family: 'Consolas', monospace;">${sqlText || 'No SQL text available'}</div>
+                    `;
+                    targetDiv.style.display = 'block';
+                    button.innerHTML = '✅ Retrieved';
+                } else {
+                    targetDiv.innerHTML = `
+                        <div class="content-header">❌ Error</div>
+                        <div>Failed to retrieve SQL text: ${result.message || 'Unknown error'}</div>
+                    `;
+                    targetDiv.style.display = 'block';
+                    button.innerHTML = '❌ Failed';
+                }
+            } catch (error) {
+                targetDiv.innerHTML = `
+                    <div class="content-header">❌ Error</div>
+                    <div>Error: ${error.message}</div>
+                `;
+                targetDiv.style.display = 'block';
+                button.innerHTML = '❌ Error';
+            }
+            
+            button.disabled = false;
+        }
+
+        // Get resource information with caching
+        async function getResourceInfo(waitResource, targetId, databaseId = '') {
+            const button = event.target;
+            const targetDiv = document.getElementById(targetId);
+            
+            // Show loading state
+            button.disabled = true;
+            button.innerHTML = '<span class="loading-spinner"></span>Getting Info...';
+            
+            try {
+                // Check cache first
+                if (resourceInfoCache.has(waitResource)) {
+                    const cachedResult = resourceInfoCache.get(waitResource);
+                    targetDiv.innerHTML = cachedResult;
+                    targetDiv.style.display = 'block';
+                    button.innerHTML = '✅ Cached';
+                    button.disabled = false;
+                    return;
+                }
+                
+                let query = '';
+                let resourceType = 'Unknown';
+                
+                if (waitResource.includes('KEY:')) {
+                    // Parse key lock format: KEY: db_id:hobt_id (hash_value)
+                    const keyMatch = waitResource.match(/KEY:\s*(\d+):(\d+)\s*\(([^)]+)\)/);
+                    if (keyMatch) {
+                        const [, dbId, hobtId, hashValue] = keyMatch;
+                        resourceType = 'Key Lock';
+                        query = `
+                        SELECT 
+                            DB_NAME(${dbId}) AS database_name,
+                            o.name AS table_name,
+                            i.name AS index_name,
+                            i.type_desc AS index_type,
+                            p.partition_number,
+                            p.rows AS partition_rows,
+                            '${hashValue}' AS hash_value
+                        FROM sys.partitions p
+                        JOIN sys.objects o ON p.object_id = o.object_id
+                        JOIN sys.indexes i ON p.object_id = i.object_id AND p.index_id = i.index_id
+                        WHERE p.hobt_id = ${hobtId}`;
+                    }
+                } else if (waitResource.includes('PAGE:')) {
+                    // Parse page lock format: PAGE: db_id:file_id:page_id
+                    const pageMatch = waitResource.match(/PAGE:\s*(\d+):(\d+):(\d+)/);
+                    if (pageMatch) {
+                        const [, dbId, fileId, pageId] = pageMatch;
+                        resourceType = 'Page Lock';
+                        query = `
+                        SELECT 
+                            DB_NAME(${dbId}) AS database_name,
+                            '${fileId}' AS file_id,
+                            '${pageId}' AS page_id,
+                            CASE 
+                                WHEN ${pageId} = 0 THEN 'File Header Page'
+                                WHEN ${pageId} = 1 THEN 'Page Free Space (PFS) Page'
+                                WHEN ${pageId} % 511232 = 0 THEN 'Global Allocation Map (GAM) Page'
+                                WHEN ${pageId} % 511232 = 1 THEN 'Shared Global Allocation Map (SGAM) Page'
+                                ELSE 'Data/Index Page'
+                            END AS page_type
+                        `;
+                        
+                        // Try to find the object that owns this page
+                        query += `
+                        UNION ALL
+                        SELECT 
+                            DB_NAME(${dbId}) AS database_name,
+                            '${fileId}' AS file_id,
+                            '${pageId}' AS page_id,
+                            'Object: ' + o.name + ' (Index: ' + ISNULL(i.name, 'Heap') + ')' AS page_type
+                        FROM sys.allocation_units au
+                        JOIN sys.partitions p ON au.container_id = p.partition_id
+                        JOIN sys.objects o ON p.object_id = o.object_id
+                        LEFT JOIN sys.indexes i ON p.object_id = i.object_id AND p.index_id = i.index_id
+                        WHERE au.first_page <= ${pageId} AND au.last_page >= ${pageId}
+                        `;
+                    }
+                } else if (waitResource.includes('OBJECT:')) {
+                    // Parse object lock format: OBJECT: db_id:object_id
+                    const objectMatch = waitResource.match(/OBJECT:\s*(\d+):(\d+)/);
+                    if (objectMatch) {
+                        const [, dbId, objectId] = objectMatch;
+                        resourceType = 'Object Lock';
+                        query = `
+                        SELECT 
+                            DB_NAME(${dbId}) AS database_name,
+                            o.name AS object_name,
+                            o.type_desc AS object_type,
+                            SCHEMA_NAME(o.schema_id) AS schema_name,
+                            o.create_date,
+                            o.modify_date
+                        FROM sys.objects o
+                        WHERE o.object_id = ${objectId}`;
+                    }
+                } else if (waitResource.includes('RID:')) {
+                    // Parse RID lock format: RID: db_id:file_id:page_id:slot_id
+                    const ridMatch = waitResource.match(/RID:\s*(\d+):(\d+):(\d+):(\d+)/);
+                    if (ridMatch) {
+                        const [, dbId, fileId, pageId, slotId] = ridMatch;
+                        resourceType = 'Row Lock (RID)';
+                        query = `
+                        SELECT 
+                            DB_NAME(${dbId}) AS database_name,
+                            '${fileId}' AS file_id,
+                            '${pageId}' AS page_id,
+                            '${slotId}' AS slot_id,
+                            'Row identifier lock' AS lock_description
+                        `;
+                    }
+                }
+                
+                if (query) {
+                    const result = await executeDiagnosticQueryInternal(query);
+                    
+                    let content = `<div class="content-header">🔍 ${resourceType} Information</div>`;
+                    
+                    if (result.success && result.data && result.data.length > 0) {
+                        content += '<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">';
+                        
+                        // Add header
+                        const headers = Object.keys(result.data[0]);
+                        content += '<tr>' + headers.map(h => `<th style="border: 1px solid var(--border); padding: 8px; background: var(--bg-secondary);">${h}</th>`).join('') + '</tr>';
+                        
+                        // Add data rows
+                        result.data.forEach(row => {
+                            content += '<tr>' + headers.map(h => `<td style="border: 1px solid var(--border); padding: 8px;">${row[h] || 'NULL'}</td>`).join('') + '</tr>';
+                        });
+                        
+                        content += '</table>';
+                    } else {
+                        content += `<div>No information found for resource: ${waitResource}</div>`;
+                    }
+                    
+                    // Cache the result
+                    resourceInfoCache.set(waitResource, content);
+                    updateCacheStatus();
+                    
+                    targetDiv.innerHTML = content;
+                } else {
+                    targetDiv.innerHTML = `
+                        <div class="content-header">❓ Unknown Resource Type</div>
+                        <div>Cannot parse resource format: ${waitResource}</div>
+                    `;
+                }
+                
+                targetDiv.style.display = 'block';
+                button.innerHTML = '✅ Retrieved';
+                
+            } catch (error) {
+                targetDiv.innerHTML = `
+                    <div class="content-header">❌ Error</div>
+                    <div>Error: ${error.message}</div>
+                `;
+                targetDiv.style.display = 'block';
+                button.innerHTML = '❌ Error';
+            }
+            
+            button.disabled = false;
+        }
+
+        // Get database name with caching
+        async function getDatabaseName(databaseId, targetId) {
+            const button = event.target;
+            const targetDiv = document.getElementById(targetId);
+            
+            // Show loading state
+            button.disabled = true;
+            button.innerHTML = '<span class="loading-spinner"></span>Getting Name...';
+            
+            try {
+                // Check cache first
+                if (databaseNameCache.has(databaseId)) {
+                    const cachedName = databaseNameCache.get(databaseId);
+                    targetDiv.innerHTML = `
+                        <div class="content-header">🗄️ Database Information (Cached)</div>
+                        <div><strong>Database Name:</strong> ${cachedName}</div>
+                        <div><strong>Database ID:</strong> ${databaseId}</div>
+                    `;
+                    targetDiv.style.display = 'block';
+                    button.innerHTML = '✅ Cached';
+                    button.disabled = false;
+                    return;
+                }
+                
+                const query = `SELECT DB_NAME(${databaseId}) AS database_name`;
+                const result = await executeDiagnosticQueryInternal(query);
+                
+                if (result.success && result.data && result.data.length > 0) {
+                    const dbName = result.data[0].database_name;
+                    
+                    // Cache the result
+                    databaseNameCache.set(databaseId, dbName);
+                    updateCacheStatus();
+                    
+                    targetDiv.innerHTML = `
+                        <div class="content-header">🗄️ Database Information</div>
+                        <div><strong>Database Name:</strong> ${dbName || 'Unknown'}</div>
+                        <div><strong>Database ID:</strong> ${databaseId}</div>
+                    `;
+                    targetDiv.style.display = 'block';
+                    button.innerHTML = '✅ Retrieved';
+                } else {
+                    targetDiv.innerHTML = `
+                        <div class="content-header">❌ Error</div>
+                        <div>Failed to retrieve database name for ID: ${databaseId}</div>
+                    `;
+                    targetDiv.style.display = 'block';
+                    button.innerHTML = '❌ Failed';
+                }
+            } catch (error) {
+                targetDiv.innerHTML = `
+                    <div class="content-header">❌ Error</div>
+                    <div>Error: ${error.message}</div>
+                `;
+                targetDiv.style.display = 'block';
+                button.innerHTML = '❌ Error';
+            }
+            
+            button.disabled = false;
+        }
+
+        // Internal function to execute diagnostic queries without UI updates
+        async function executeDiagnosticQueryInternal(query) {
+            const connectionString = document.getElementById('dbConnectionString')?.value;
+            if (!connectionString) {
+                throw new Error('Please set a database connection string in the database connection section');
+            }
+            
+            const response = await fetch('/api/deadlock/execute-diagnostic-query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    connectionString: connectionString,
+                    query: query
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            return await response.json();
         }
 
         // Render charts
@@ -2629,6 +3074,42 @@ WHERE p.hobt_id = ${resource.hobtid};`;
             }
             document.getElementById(filterInputId).value = value;
             applyFilters();
+        }
+
+        // Get cache statistics
+        function getCacheStats() {
+            return {
+                sqlHandles: sqlHandleCache.size,
+                databaseNames: databaseNameCache.size,
+                resourceInfo: resourceInfoCache.size,
+                totalCached: sqlHandleCache.size + databaseNameCache.size + resourceInfoCache.size
+            };
+        }
+
+        // Clear all caches
+        function clearAllCaches() {
+            sqlHandleCache.clear();
+            databaseNameCache.clear();
+            resourceInfoCache.clear();
+            console.log('All caches cleared');
+        }
+
+        // Update cache status display
+        function updateCacheStatus() {
+            const stats = getCacheStats();
+            
+            if (document.getElementById('sqlHandleCacheCount')) {
+                document.getElementById('sqlHandleCacheCount').textContent = stats.sqlHandles;
+            }
+            if (document.getElementById('databaseCacheCount')) {
+                document.getElementById('databaseCacheCount').textContent = stats.databaseNames;
+            }
+            if (document.getElementById('resourceCacheCount')) {
+                document.getElementById('resourceCacheCount').textContent = stats.resourceInfo;
+            }
+            if (document.getElementById('totalCacheCount')) {
+                document.getElementById('totalCacheCount').textContent = stats.totalCached;
+            }
         }
 
         // Execute diagnostic query
