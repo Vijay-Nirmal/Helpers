@@ -1317,11 +1317,14 @@ ${'='.repeat(50)}
             deadlockData = [];
             parsingErrors = [];
             
-            // Check if content contains multiple lines (each line is a deadlock report)
-            const lines = xmlContent.trim().split('\n').filter(line => line.trim().length > 0);
+            // Determine if this is line-by-line format or formatted XML
+            const isLineByLineFormat = detectLineByLineFormat(xmlContent);
+            console.log(`Using parsing method: ${isLineByLineFormat ? 'Line-by-line' : 'Formatted XML'}`);
             
-            if (lines.length > 1) {
-                // Handle line-by-line format
+            if (isLineByLineFormat) {
+                // Handle line-by-line format (each line is a complete deadlock XML)
+                const lines = xmlContent.trim().split('\n').filter(line => line.trim().length > 0);
+                
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i].trim();
                     if (line.length === 0) continue;
@@ -1397,7 +1400,7 @@ ${'='.repeat(50)}
                     }
                 }
             } else {
-                // Handle single XML document format
+                // Handle formatted XML document (single or multiple deadlocks in structured XML)
                 try {
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
@@ -1410,12 +1413,12 @@ ${'='.repeat(50)}
                             lineNumber: 1,
                             message: `XML Parse Error: ${errorMsg}`,
                             rawXml: xmlContent,
-                            stack: `Single document: ${errorMsg}`
+                            stack: `Formatted XML: ${errorMsg}`
                         });
                         return; // Cannot continue with invalid XML
                     }
                     
-                    // Look for deadlock elements
+                    // Look for deadlock elements (both standalone and within deadlock-list)
                     const deadlocks = xmlDoc.getElementsByTagName('deadlock');
                     
                     if (deadlocks.length === 0) {
@@ -1423,7 +1426,7 @@ ${'='.repeat(50)}
                             lineNumber: 1,
                             message: 'No deadlock elements found in XML document',
                             rawXml: xmlContent,
-                            stack: 'Single document: Missing deadlock elements'
+                            stack: 'Formatted XML: Missing deadlock elements'
                         });
                         return;
                     }
@@ -1456,7 +1459,7 @@ ${'='.repeat(50)}
                         lineNumber: 1,
                         message: `Critical XML Error: ${error.message}`,
                         rawXml: xmlContent,
-                        stack: error.stack || `Single document: ${error.message}`
+                        stack: error.stack || `Formatted XML: ${error.message}`
                     });
                 }
             }
@@ -1467,6 +1470,82 @@ ${'='.repeat(50)}
             if (deadlockData.length === 0 && parsingErrors.length === 0) {
                 throw new Error('No deadlock reports found in the input');
             }
+        }
+
+        // Detect if XML content is in line-by-line format or formatted XML
+        function detectLineByLineFormat(xmlContent) {
+            const lines = xmlContent.trim().split('\n').filter(line => line.trim().length > 0);
+            
+            // If only one line, it's definitely not line-by-line format in the traditional sense
+            if (lines.length <= 1) {
+                console.log('Detection: Single line detected, treating as formatted XML');
+                return false;
+            }
+            
+            // Check if each line appears to be a complete XML document
+            // Line-by-line format characteristics:
+            // 1. Each line starts with < and ends with >
+            // 2. Each line contains at least one complete XML element
+            // 3. Lines don't appear to be indented (formatted XML usually has indentation)
+            
+            let linesWithCompleteXml = 0;
+            let linesWithIndentation = 0;
+            
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                
+                // Check if line has significant leading whitespace (indentation)
+                const leadingWhitespace = line.length - line.trimStart().length;
+                if (leadingWhitespace >= 4) { // 4+ spaces indicates formatting
+                    linesWithIndentation++;
+                }
+                
+                // Check if line looks like a complete XML document
+                if (trimmedLine.startsWith('<') && trimmedLine.endsWith('>')) {
+                    // Try to parse the line as XML to see if it's complete
+                    try {
+                        const parser = new DOMParser();
+                        const xmlDoc = parser.parseFromString(trimmedLine, 'text/xml');
+                        const parseError = xmlDoc.getElementsByTagName('parsererror');
+                        
+                        if (parseError.length === 0) {
+                            // Check if it contains deadlock elements
+                            const deadlocks = xmlDoc.getElementsByTagName('deadlock');
+                            const deadlockLists = xmlDoc.getElementsByTagName('deadlock-list');
+                            
+                            if (deadlocks.length > 0 || deadlockLists.length > 0) {
+                                linesWithCompleteXml++;
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore parsing errors for detection
+                    }
+                }
+            }
+            
+            // Decision logic:
+            // - If more than 50% of lines have indentation (formatted XML)
+            // - If less than 30% of lines contain complete XML (not line-by-line)
+            const indentationRatio = linesWithIndentation / lines.length;
+            const completeXmlRatio = linesWithCompleteXml / lines.length;
+            
+            console.log(`Detection stats: ${lines.length} lines, ${linesWithIndentation} indented (${(indentationRatio*100).toFixed(1)}%), ${linesWithCompleteXml} complete XML (${(completeXmlRatio*100).toFixed(1)}%)`);
+            
+            // If we have significant indentation, it's likely formatted XML
+            if (indentationRatio > 0.5) {
+                console.log('Detection: Formatted XML detected (high indentation ratio)');
+                return false;
+            }
+            
+            // If we have a good ratio of complete XML per line, it's likely line-by-line
+            if (completeXmlRatio > 0.3) {
+                console.log('Detection: Line-by-line format detected (high complete XML ratio)');
+                return true;
+            }
+            
+            // Default to formatted XML for ambiguous cases
+            console.log('Detection: Ambiguous case, defaulting to formatted XML');
+            return false;
         }
 
         // Parse individual deadlock element
