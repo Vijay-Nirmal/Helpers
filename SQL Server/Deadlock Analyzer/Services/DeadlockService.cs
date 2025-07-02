@@ -68,7 +68,6 @@ public class DeadlockService : IDeadlockService
                 ORDER BY timestamp_utc DESC";
 
             using var command = new SqlCommand(query, connection);
-            command.CommandTimeout = 60;
 
             var events = new List<DeadlockEvent>();
             using var reader = await command.ExecuteReaderAsync();
