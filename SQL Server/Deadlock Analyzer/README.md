@@ -65,12 +65,36 @@ Built with ASP.NET Core 8.0 backend and vanilla JavaScript frontend, this intell
 
 ### Prerequisites
 
-- **.NET 8.0 SDK** or later
+- **.NET 8.0 SDK** or later (for building from source)
 - **SQL Server** (2016 or later recommended)
 - **Web browser** (Chrome, Firefox, Safari, or Edge)
 - **SQL Server permissions** for Extended Events access (optional)
 
-### Installation
+### Quick Start - Download Pre-built Release
+
+**Fastest way to get started:**
+
+1. **Download the latest release**
+   - Go to [GitHub Releases](https://github.com/Vijay-Nirmal/Helpers/releases)
+   - Download the latest `DeadlockAnalyzer-v*.zip` file
+   - Extract to your preferred location
+
+2. **Run the application**
+   ```bash
+   # Navigate to extracted folder
+   cd DeadlockAnalyzer
+   
+   # Run the executable
+   ./DeadlockAnalyzer.exe
+   ```
+
+3. **Access the application**
+   - Open your web browser and navigate to `https://localhost:5001` or `http://localhost:5000`
+   - Start analyzing your deadlock reports immediately!
+
+### Build from Source
+
+**For developers who want to build from source:**
 
 1. **Clone the repository**
    ```bash
