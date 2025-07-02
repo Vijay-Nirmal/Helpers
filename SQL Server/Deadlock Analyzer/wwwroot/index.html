@@ -1993,8 +1993,22 @@ ${'='.repeat(50)}
             
             if (process.executionStack && process.executionStack.length > 0) {
                 const frame = process.executionStack[0];
-                if (frame.procname && frame.procname !== 'adhoc') {
+                if (frame.procname && frame.procname !== 'adhoc' && frame.procname !== 'unknown') {
                     return frame.procname;
+                }
+                
+                // If procname is 'unknown', try to get a meaningful name from inputBuffer
+                if (frame.procname === 'unknown' && process.inputBuffer) {
+                    let buffer = process.inputBuffer.trim();
+                    // Remove parameters using stack-based approach
+                    buffer = removeParametersFromQuery(buffer);
+                    buffer = buffer.replace(/\s+/g, ' ');
+                    
+                    // Extract first meaningful part of the query (up to first keyword after parameters)
+                    const firstWords = buffer.split(' ').slice(0, 3).join(' ');
+                    if (firstWords.length > 0) {
+                        return firstWords.length > 50 ? firstWords.substring(0, 50) + '...' : firstWords;
+                    }
                 }
             }
             
@@ -2005,17 +2019,55 @@ ${'='.repeat(50)}
             return `SPID ${process.spid || 'Unknown'}`;
         }
 
+        // Remove SQL parameters using stack-based approach
+        function removeParametersFromQuery(query) {
+            if (!query || typeof query !== 'string') return query || '';
+            
+            // Trim the query first
+            let trimmedQuery = query.trim();
+            
+            // Check if the query starts with parameter declaration pattern
+            if (trimmedQuery.startsWith('(') && trimmedQuery.includes('@')) {
+                const stack = [];
+                let i = 0;
+                
+                // Add the first opening parenthesis to stack
+                stack.push('(');
+                i++; // Skip the first opening parenthesis
+                
+                // Find the matching closing parenthesis
+                while (i < trimmedQuery.length && stack.length > 0) {
+                    const char = trimmedQuery[i];
+                    
+                    if (char === '(') {
+                        stack.push('(');
+                    } else if (char === ')') {
+                        stack.pop();
+                    }
+                    
+                    i++;
+                }
+                
+                // If we found the matching closing parenthesis, remove the parameter declaration
+                if (stack.length === 0 && i < trimmedQuery.length) {
+                    return trimmedQuery.substring(i).trim();
+                }
+            }
+            
+            return trimmedQuery;
+        }
+
         // Get query/procedure name for display
         function getQueryName(process) {
             if (!process) return 'Unknown';
             
             if (process.executionStack && process.executionStack.length > 0) {
                 const frame = process.executionStack[0];
-                if (frame.procname && frame.procname !== 'adhoc') {
+                if (frame.procname && frame.procname !== 'adhoc' && frame.procname !== 'unknown') {
                     return frame.procname;
                 }
-                // For ad-hoc queries, try to extract meaningful part of the statement
-                if (frame.statement) {
+                // For ad-hoc queries or unknown procedures, try to extract meaningful part of the statement
+                if (frame.statement && frame.statement.trim() !== 'unknown') {
                     let stmt = frame.statement.trim();
                     // Remove extra whitespace and newlines
                     stmt = stmt.replace(/\s+/g, ' ');
@@ -2025,10 +2077,24 @@ ${'='.repeat(50)}
                     }
                     return stmt || 'Ad-hoc Query';
                 }
+                
+                // If procname is 'unknown' or statement is 'unknown', fall back to inputBuffer
+                if ((frame.procname === 'unknown' || frame.statement === 'unknown' || !frame.statement) && process.inputBuffer) {
+                    let buffer = process.inputBuffer.trim();
+                    // Remove parameters using stack-based approach
+                    buffer = removeParametersFromQuery(buffer);
+                    buffer = buffer.replace(/\s+/g, ' ');
+                    if (buffer.length > 100) {
+                        buffer = buffer.substring(0, 100) + '...';
+                    }
+                    return buffer || 'Unknown Query';
+                }
             }
             
             if (process.inputBuffer) {
                 let buffer = process.inputBuffer.trim();
+                // Remove parameters using stack-based approach
+                buffer = removeParametersFromQuery(buffer);
                 buffer = buffer.replace(/\s+/g, ' ');
                 if (buffer.length > 100) {
                     buffer = buffer.substring(0, 100) + '...';
